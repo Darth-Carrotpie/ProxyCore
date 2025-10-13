@@ -1,0 +1,63 @@
+# Top-most EditorConfig file
+root = true
+
+# Apply to all C# files
+[*.cs]
+
+# Use spaces for indentation
+indent_style = space
+indent_size = 4
+
+# Use UTF-8 encoding
+charset = utf-8
+
+# Line endings
+end_of_line = lf
+
+# Formatting rules
+csharp_new_line_before_open_brace = none
+csharp_new_line_before_open_brace_types = none
+csharp_new_line_before_open_brace_methods = none
+csharp_new_line_before_open_brace_properties = none
+csharp_new_line_before_open_brace_accessors = none
+csharp_new_line_before_open_brace_anonymous_methods = none
+csharp_new_line_before_open_brace_control_blocks = none
+csharp_new_line_before_open_brace_anonymous_types = none
+csharp_new_line_before_open_brace_object_collection_array_initializers = none
+csharp_new_line_before_open_brace_lambda_expression_body = none
+
+# Prefer using 'var' when type is apparent or built-in
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = false:suggestion
+
+# Prefer expression-bodied members when possible
+csharp_style_expression_bodied_methods = when_possible:suggestion
+csharp_style_expression_bodied_constructors = when_possible:suggestion
+csharp_style_expression_bodied_operators = when_possible:suggestion
+csharp_style_expression_bodied_properties = when_possible:suggestion
+csharp_style_expression_bodied_indexers = when_possible:suggestion
+csharp_style_expression_bodied_accessors = when_possible:suggestion
+
+# Code block preferences
+csharp_prefer_braces = true:suggestion
+
+# Spacing
+csharp_space_before_open_square_brackets = false
+csharp_space_between_empty_square_brackets = false
+csharp_space_after_cast = false
+
+# Wrapping preferences
+csharp_preserve_single_line_blocks = true
+csharp_preserve_single_line_statements = true
+
+# Blank lines
+csharp_style_allow_blank_line_between_consecutive_braces = false
+
+# Organize usings
+dotnet_separate_import_directive_groups = false
+dotnet_sort_system_directives_first = true
+
+# File formatting
+insert_final_newline = true
+trim_trailing_whitespace = true

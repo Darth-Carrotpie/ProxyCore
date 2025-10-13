@@ -1,0 +1,50 @@
+name: Deploy Package
+
+# Controls when the action will run. 
+on:
+  # Triggers the workflow on push request events but only for the release branch
+  push:
+    branches: [ release ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+permissions:
+  contents: write
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  deploy:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v3
+      - name: Update manifest to latest release tag
+        run: |
+          LATEST=$(curl -s https://api.github.com/repos/Darth-Carrotpie/ProxyCore/releases/latest | jq -r .tag_name)
+          echo "Latest tag is $LATEST"
+          sed -i "s|\(ProxyCore.git\)#.*|\1#$LATEST|g" Packages/manifest.json
+          cat Packages/manifest.json
+      - name: Prepare folders and Files
+      #rename Samples folder, because in a working unity project we cannot have Samples~ folder, or Unity will just never import it.
+        run: |
+          mv Assets/ProxyCore/Samples Assets/ProxyCore/Samples~
+          #The ProxyCore project is set up to have a nice structure of all required resources under assets/ProxyCore, therefore we will use all of the folder to publish
+          mv Assets/ProxyCore Packages/com.shakotis.proxycore
+          #mv Packages/manifest.json Packages/com.shakotis.proxycore/manifest.json #This is not needed, because the manifest is in the root of the project?
+          sed -i '1s/^\xEF\xBB\xBF//' Packages/com.shakotis.proxycore/package.json
+          cat Packages/com.shakotis.proxycore/package.json | jq .
+          git config --global user.email "kiber@shakotis.com"
+          git config --global user.name "github-actions[bot]"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/Darth-Carrotpie/ProxyCore.git
+          git add Packages/com.shakotis.proxycore
+          git commit -m "Ensure package directory exists for subtree split"
+
+      - name: Publish Unity package
+        uses: cdmvision/action-upm-publish@v1
+        with: 
+          name: 'com.shakotis.proxycore'
+          upmBranch: 'upm'

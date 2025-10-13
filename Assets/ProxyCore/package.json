@@ -1,0 +1,34 @@
+{
+    "name": "com.shakotis.proxycore",
+    "displayName": "ProxyCore",
+    "version": "0.1.00",
+    "unity": "6000.0",
+    "license": "Proprietary-Private",
+    "description": "Use ProxyCore package when you're building game on Message Bus design Pattern. \n\n Features: \n▪️ EventCoordinator, GameMessage, Scriptable Registry Pattern.",
+    "keywords": [
+        "Message",
+        "ProxyCore",
+        "Event",
+        "GameMessage",
+        "Scriptable",
+        "Registry"
+    ],
+    "author": {
+        "name": "carrotpie",
+        "email": "carrotpie@gmail.com",
+        "url": "https://github.com/Darth-Carrotpie"
+    },
+    "dependencies": {},
+    "samples": [
+        {
+            "displayName": "Basic",
+            "description": "Some basic event system usage examples.",
+            "path": "Samples~/Basic"
+        },
+        {
+            "displayName": "Scenes",
+            "description": "Some example scenes to demonstrate the usage of ProxyCore.",
+            "path": "Samples~/Scenes"
+        }
+    ]
+}
