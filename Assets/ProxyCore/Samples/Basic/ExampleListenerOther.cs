@@ -11,9 +11,9 @@ public class ExampleListenerOther : MonoBehaviour {
     }
 
     void OnAddResource(GameMessage msg) {
-        foreach (CustomObject ob in msg.targetCustomObjects) {
+        /*foreach (CustomObject ob in msg.targetCustomObjects) {
             Debug.Log(ob.value);
-        }
+        }*/
     }
 
     void OnErrorShow(GameMessage msg) {

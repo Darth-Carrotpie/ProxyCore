@@ -27,7 +27,7 @@ public class ExampleTrigger : MonoBehaviour {
             List<CustomObject> list = new List<CustomObject>();
             list.Add(newObj1);
             list.Add(newObj2);
-            EventCoordinator.TriggerEvent(EventName.Examples.AddResource(), GameMessage.Write().WithTargetCustomObjects(list));
+            //EventCoordinator.TriggerEvent(EventName.Examples.AddResource(), GameMessage.Write().WithTargetCustomObjects(list));
         }
     }
 }

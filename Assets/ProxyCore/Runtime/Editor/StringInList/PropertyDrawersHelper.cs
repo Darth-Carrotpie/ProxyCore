@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
-namespace ProxyCore {
+namespace ProxyCore.Editor {
     public static class PropertyDrawersHelper {
 
         public static string[] AllSceneNames() {

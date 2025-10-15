@@ -26,10 +26,10 @@ namespace ProxyCore {
         public GameMessage WithTransform(Transform value) => base.WithItem<Transform>(ref _transform, value, ref transformSet);
 
         //Can also send a custom object for better packing and readability, a preferred way. And even a List as well.
-        private List<CustomObject> _targetCustomObjects;
-        private bool targetCustomObjectsSet;
-        public List<CustomObject> targetCustomObjects { get { return base.GetItem(ref _targetCustomObjects, targetCustomObjectsSet); } }
-        public GameMessage WithTargetCustomObjects(List<CustomObject> value) => base.WithItem<List<CustomObject>>(ref _targetCustomObjects, value, ref targetCustomObjectsSet);
+        //private List<CustomObject> _targetCustomObjects;
+        //private bool targetCustomObjectsSet;
+        //public List<CustomObject> targetCustomObjects { get { return base.GetItem(ref _targetCustomObjects, targetCustomObjectsSet); } }
+        //public GameMessage WithTargetCustomObjects(List<CustomObject> value) => base.WithItem<List<CustomObject>>(ref _targetCustomObjects, value, ref targetCustomObjectsSet);
 
         //Use an int type if you need a bool, i.e. 0 or 1 and just convert it to bool in a listener via (bool)value
         private int _intMessage;
