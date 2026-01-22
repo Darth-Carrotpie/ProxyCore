@@ -1,0 +1,4 @@
+﻿<Solution>
+  <Project Path="ProxyCore.csproj" />
+  <Project Path="Assembly-CSharp.csproj" />
+</Solution>

@@ -7,7 +7,7 @@ namespace ProxyCore {
         [Tooltip("List of all definitions")]
         public List<T> definitions = new List<T>();
 
-        protected Dictionary<string, T> _lookup;
+        protected Dictionary<int, T> _lookup;
         protected Dictionary<Type, T> _typeLookup;
 
         protected override void OnEnable() {
@@ -15,12 +15,12 @@ namespace ProxyCore {
         }
 
         public virtual void InitializeLookup() {
-            _lookup = new Dictionary<string, T>();
+            _lookup = new Dictionary<int, T>();
             _typeLookup = new Dictionary<Type, T>();
 
             foreach (var def in definitions) {
                 if (def != null && def.IsValidID()) {
-                    _lookup[def.ID.ToString()] = def;
+                    _lookup[def.ID] = def;
                 }
 
                 if (def != null) {
@@ -38,7 +38,7 @@ namespace ProxyCore {
             return definitions.AsReadOnly();
         }
 
-        public virtual T GetDefinition(string id) {
+        public virtual T GetDefinition(int id) {
             if (_lookup == null)
                 InitializeLookup();
             _lookup.TryGetValue(id, out var def);
@@ -54,6 +54,10 @@ namespace ProxyCore {
         }
 
 #if UNITY_EDITOR
+        [Header("Editor Settings")]
+        [Tooltip("Automatically refresh this registry when definitions are created, deleted, or moved")]
+        public bool autoRefresh = true;
+
         /// <summary>
         /// Override this property in derived classes to specify the asset type name for search.
         /// Example: "ResourceCategoryDefinition"
