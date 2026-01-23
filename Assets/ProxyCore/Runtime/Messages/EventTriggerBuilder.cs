@@ -41,7 +41,7 @@ namespace ProxyCore
             if (_sent) return;
             _sent = true;
 
-            EventCoordinatorNew.TriggerEventInternal(_eventMessage, _data);
+            EventCoordinator.TriggerEventInternal(_eventMessage, _data);
             // Data is released by TriggerEventInternal after invocation
             _data = null;
         }

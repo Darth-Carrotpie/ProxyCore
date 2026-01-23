@@ -24,7 +24,7 @@ namespace ProxyCore.Editor
         }
 
         /// <summary>
-        /// Gets all EventMessage display names from the EventCoordinatorNew registry.
+        /// Gets all EventMessage display names from the EventCoordinator registry.
         /// </summary>
         public static string[] AllEventNames()
         {

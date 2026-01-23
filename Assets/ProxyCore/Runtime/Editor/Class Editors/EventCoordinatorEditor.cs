@@ -4,18 +4,18 @@ using UnityEditor;
 namespace ProxyCore.Editor
 {
     /// <summary>
-    /// Custom editor for EventCoordinatorNew.
+    /// Custom editor for EventCoordinator.
     /// Provides buttons to print muted/unmuted events for debugging.
     /// </summary>
-    [CustomEditor(typeof(EventCoordinatorNew))]
-    public class EventCoordinatorNewEditor : UnityEditor.Editor
+    [CustomEditor(typeof(EventCoordinator))]
+    public class EventCoordinatorEditor : UnityEditor.Editor
     {
 
         public override void OnInspectorGUI()
         {
             base.OnInspectorGUI();
 
-            var coordinator = (EventCoordinatorNew)target;
+            var coordinator = (EventCoordinator)target;
 
             EditorGUILayout.Space(10);
             EditorGUILayout.LabelField("Debug Tools", EditorStyles.boldLabel);
@@ -42,7 +42,7 @@ namespace ProxyCore.Editor
             }
         }
 
-        private void PrintMutedEvents(EventCoordinatorNew coordinator)
+        private void PrintMutedEvents(EventCoordinator coordinator)
         {
             var mutedEvents = coordinator.GetMutedEvents();
 
@@ -56,14 +56,14 @@ namespace ProxyCore.Editor
 
             foreach (var evt in mutedEvents)
             {
-                string display = EventCoordinatorNew.FormatEventForDisplay(evt);
+                string display = EventCoordinator.FormatEventForDisplay(evt);
                 Debug.Log($"[MUTED] {display}");
             }
 
             Debug.Log($"Total: {mutedEvents.Count} muted events");
         }
 
-        private void PrintUnmutedEvents(EventCoordinatorNew coordinator)
+        private void PrintUnmutedEvents(EventCoordinator coordinator)
         {
             var unmutedEvents = coordinator.GetUnmutedEvents();
 
@@ -77,14 +77,14 @@ namespace ProxyCore.Editor
 
             foreach (var evt in unmutedEvents)
             {
-                string display = EventCoordinatorNew.FormatEventForDisplay(evt);
+                string display = EventCoordinator.FormatEventForDisplay(evt);
                 Debug.Log($"[LOGGING] {display}");
             }
 
             Debug.Log($"Total: {unmutedEvents.Count} logging events");
         }
 
-        private void PrintAllEvents(EventCoordinatorNew coordinator)
+        private void PrintAllEvents(EventCoordinator coordinator)
         {
             var allEvents = coordinator.GetAllDefinitions();
 
@@ -101,7 +101,7 @@ namespace ProxyCore.Editor
                 if (evt == null) continue;
 
                 string status = evt.muteDebugLog ? "[MUTED]" : "[LOGGING]";
-                string display = EventCoordinatorNew.FormatEventForDisplay(evt);
+                string display = EventCoordinator.FormatEventForDisplay(evt);
                 Debug.Log($"{status} {display}");
             }
 

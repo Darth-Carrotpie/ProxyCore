@@ -25,7 +25,7 @@ namespace ProxyCore
             if (primaryEvent != null)
             {
                 // Attach a follow-up handler to the primary event
-                EventCoordinatorNew.Attach(primaryEvent, OnPrimaryEventAttachment);
+                EventCoordinator.Attach(primaryEvent, OnPrimaryEventAttachment);
             }
         }
 
@@ -33,7 +33,7 @@ namespace ProxyCore
         {
             if (primaryEvent != null)
             {
-                EventCoordinatorNew.Detach(primaryEvent, OnPrimaryEventAttachment);
+                EventCoordinator.Detach(primaryEvent, OnPrimaryEventAttachment);
             }
         }
 
@@ -46,7 +46,7 @@ namespace ProxyCore
             // Trigger the follow-up event
             if (followUpEvent != null)
             {
-                EventCoordinatorNew.TriggerEventInternal(followUpEvent, data);
+                EventCoordinator.TriggerEventInternal(followUpEvent, data);
             }
         }
     }

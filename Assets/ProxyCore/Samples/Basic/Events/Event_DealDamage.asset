@@ -19,11 +19,17 @@ MonoBehaviour:
   categories:
   - {fileID: 11400000, guid: 93b4b27055c9d0741aa36c7121f127bb, type: 2}
   - {fileID: 11400000, guid: b0b6c3b51facd4946a96497ff7ed1c50, type: 2}
-  expectedPayloads: []
+  expectedPayloads:
+  - rid: 1859935503656681666
   skipPayloadValidation: 0
   muteDebugLog: 0
   eventTypeFile: {fileID: 0}
   eventTypeName: 
   references:
     version: 2
-    RefIds: []
+    RefIds:
+    - rid: 1859935503656681666
+      type: {class: FloatPayload, ns: ProxyCore, asm: ProxyCore}
+      data:
+        _isSet: 0
+        _value: 0

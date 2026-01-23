@@ -9,9 +9,12 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a5c8e882d10ce9342bd9e5e28e44f4f0, type: 3}
-  m_Name: EventRegistry
-  m_EditorClassIdentifier: ProxyCore::ProxyCore.EventRegistry
+  m_Script: {fileID: 11500000, guid: 61e823ad2f199d44888859f223dd20e3, type: 3}
+  m_Name: EventCoordinator
+  m_EditorClassIdentifier: ProxyCore::ProxyCore.EventCoordinator
   definitions:
   - {fileID: 11400000, guid: d6811070b7c2dbf4eb5dcbe029ecdc8b, type: 2}
   - {fileID: 11400000, guid: bc60fdad25aa02c489cf0626b5ef502e, type: 2}
+  autoRefresh: 1
+  enableDebugging: 0
+  showAttachedEvents: 0

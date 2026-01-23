@@ -13,4 +13,6 @@ MonoBehaviour:
   m_Name: CategoryRegistry
   m_EditorClassIdentifier: ProxyCore::ProxyCore.CategoryRegistry
   definitions:
+  - {fileID: 11400000, guid: 93b4b27055c9d0741aa36c7121f127bb, type: 2}
   - {fileID: 11400000, guid: b0b6c3b51facd4946a96497ff7ed1c50, type: 2}
+  autoRefresh: 1

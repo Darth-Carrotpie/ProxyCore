@@ -21,7 +21,7 @@ namespace ProxyCore
         /// </summary>
         public IDisposable Do(Action<EventMessageData> callback)
         {
-            EventCoordinatorNew.StartListening(_eventMessage, callback);
+            EventCoordinator.StartListening(_eventMessage, callback);
             return new EventSubscription(_eventMessage, callback);
         }
     }
@@ -48,7 +48,7 @@ namespace ProxyCore
             if (_disposed) return;
             _disposed = true;
 
-            EventCoordinatorNew.StopListening(_eventMessage, _callback);
+            EventCoordinator.StopListening(_eventMessage, _callback);
         }
     }
 }

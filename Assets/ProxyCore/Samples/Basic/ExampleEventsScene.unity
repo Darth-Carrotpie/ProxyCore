@@ -300,6 +300,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 86f4f8efb69a7ec4e96ab01473dae1ae, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  winEvent: {fileID: 11400000, guid: d6811070b7c2dbf4eb5dcbe029ecdc8b, type: 2}
 --- !u!1 &906585781
 GameObject:
   m_ObjectHideFlags: 0
@@ -329,7 +330,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8af6b981a8624d34a8c11148cb37c790, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  eventName: Resources_Reserve
+  selectedEvent: {fileID: 0}
 --- !u!4 &906585783
 Transform:
   m_ObjectHideFlags: 0
@@ -374,6 +375,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6772c5dd056f7af499fa6eb4c4eda2a0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  errorEvent: {fileID: 0}
+  resourceEvent: {fileID: 0}
 --- !u!4 &908920804
 Transform:
   m_ObjectHideFlags: 0
@@ -419,15 +422,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9f51ce0623c18ca408b74f424481fe76, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _persistent: 0
-  enableDebugging: 0
-  ignoreEvents:
-    list: []
-    indexes: 
-  showAttachedEvents: 0
-  ignoreAttachedEvents:
-    list: []
-    indexes: 
 --- !u!4 &1044032607
 Transform:
   m_ObjectHideFlags: 0
@@ -455,6 +449,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f6a0dec8105e8804088a65ec7af8ae6c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  primaryEvent: {fileID: 0}
+  followUpEvent: {fileID: 0}
 --- !u!1 &1766547035
 GameObject:
   m_ObjectHideFlags: 0
@@ -499,6 +495,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cd621bf773f6b744f96435b6e543a2d8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  damageEvent: {fileID: 0}
+  healEvent: {fileID: 0}
 --- !u!1 &1868398782
 GameObject:
   m_ObjectHideFlags: 0
