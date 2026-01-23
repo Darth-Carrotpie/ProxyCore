@@ -1,33 +1,61 @@
 using System.Collections;
 using System.Collections.Generic;
 using ProxyCore;
+// Note: Once EventMessage assets are created and code is generated, uncomment the line below:
+// using ProxyCore.Generated;
 using UnityEngine;
-public class ExampleTrigger : MonoBehaviour {
 
-    void Update() {
-        if (Input.GetKeyDown(KeyCode.Space)) {
-            string scoreMessageString = "You Win!";
-            //This is how you trigger an event call. Be careful about the order, if you want other events to follow up use EventChain example of how they can be attached.
-            //Samples should contain their own message objects, not residing in the core package.
-            EventCoordinator.TriggerEvent(EventName.Examples.Win(), GameMessage.Write().WithStringMessage(scoreMessageString).WithTransform(transform).WithIntMessage(7));
+/// <summary>
+/// Example showing how to trigger events with the new EventMessage system.
+/// Before using this sample:
+/// 1. Create EventMessage assets via Create > Definitions > Event Message
+/// 2. Assign categories to the events
+/// 3. Run Tools > ProxyCore > Regenerate Event Accessors
+/// 4. Uncomment the using ProxyCore.Generated and the trigger code below
+/// </summary>
+public class ExampleTrigger : MonoBehaviour
+{
+
+    // Reference to an EventMessage asset (drag in Inspector)
+    [SerializeField] private EventMessage winEvent;
+    [SerializeField] private EventMessage errorEvent;
+
+    void Update()
+    {
+        if (Input.GetKeyDown(KeyCode.Space) && winEvent != null)
+        {
+            // New way to trigger events using direct EventMessage reference:
+            new EventTriggerBuilder(winEvent)
+                .With(new StringPayload("You Win!"))
+                .With(new TransformPayload(transform))
+                .With(new IntPayload(7))
+                .Send();
+
+            // Or with using pattern (auto-sends on dispose):
+            // using (new EventTriggerBuilder(winEvent)
+            //     .With(new StringPayload("You Win!"))
+            //     .With(new IntPayload(7))) { }
+
+            // Once code is generated, you can also use:
+            // TriggerEvent.Examples.Win
+            //     .With(new StringPayload("You Win!"))
+            //     .With(new IntPayload(7))
+            //     .Send();
         }
 
-        //This trigger should throw an error, see more at example listener on Why
-        if (Input.GetKeyDown(KeyCode.E)) {
-            string scoreMessageString = "Error test!";
-            //Samples should contain their own message objects, not residing in the core package.
-            EventCoordinator.TriggerEvent(EventName.Examples.ShowError(), GameMessage.Write().WithStringMessage(scoreMessageString));
+        if (Input.GetKeyDown(KeyCode.E) && errorEvent != null)
+        {
+            new EventTriggerBuilder(errorEvent)
+                .With(new StringPayload("Error test!"))
+                .Send();
         }
 
-        //Send a list of custom objects
-        if (Input.GetKeyDown(KeyCode.L)) {
-            string scoreMessageString = "Custom object value.....!...!";
-            CustomObject newObj1 = new CustomObject(scoreMessageString + "  1!");
-            CustomObject newObj2 = new CustomObject(scoreMessageString + "    2!");
-            List<CustomObject> list = new List<CustomObject>();
-            list.Add(newObj1);
-            list.Add(newObj2);
-            //EventCoordinator.TriggerEvent(EventName.Examples.AddResource(), GameMessage.Write().WithTargetCustomObjects(list));
+        // Example with MonoRefs payload
+        if (Input.GetKeyDown(KeyCode.L))
+        {
+            // You can pass multiple MonoBehaviours in a single payload
+            // var refs = new MonoRefsPayload(component1, component2);
+            // new EventTriggerBuilder(someEvent).With(refs).Send();
         }
     }
 }

@@ -2,7 +2,11 @@
 
 namespace ProxyCore
 {
-    public class UnityGameEvent : UnityEvent<GameMessage>
+    /// <summary>
+    /// Unity event that carries EventMessageData payload.
+    /// Used internally by the event system for UnityEvent-based listeners.
+    /// </summary>
+    public class UnityGameEvent : UnityEvent<EventMessageData>
     {
 
     }

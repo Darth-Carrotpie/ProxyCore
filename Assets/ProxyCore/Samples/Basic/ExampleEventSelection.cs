@@ -5,16 +5,25 @@ using UnityEngine;
 #if UNITY_EDITOR
 using ProxyCore.Editor;
 #endif
-public class ExampleEventSelection : MonoBehaviour {
-    //By adding this editor-only attribute, you will enable a selection of event from all events that get exported via EventName.Get()
-    //Might be very useful for your game designers!
-#if UNITY_EDITOR
-    [StringInList(typeof(PropertyDrawersHelper), "AllEventNames")]
-#endif
-    public string eventName = "";
 
-    void OnEnable() {
-        //If there are no listeners, it will be skipped from call stack and not shown in debug!
-        EventCoordinator.TriggerEvent(eventName, GameMessage.Write());
+/// <summary>
+/// Example showing how to trigger an event selected from a dropdown in the Inspector.
+/// With the new system, you can directly reference an EventMessage asset.
+/// </summary>
+public class ExampleEventSelection : MonoBehaviour
+{
+
+    // Direct reference to an EventMessage asset - drag and drop in Inspector
+    [SerializeField]
+    [Tooltip("Select an EventMessage asset to trigger")]
+    private EventMessage selectedEvent;
+
+    void OnEnable()
+    {
+        if (selectedEvent != null)
+        {
+            // Trigger the selected event with empty data
+            new EventTriggerBuilder(selectedEvent).Send();
+        }
     }
 }

@@ -66,5 +66,5 @@
     "explorer.fileNesting.patterns": {
         "*.sln": "*.csproj"
     },
-    "dotnet.defaultSolution": "ProxyCore.sln"
+    "dotnet.defaultSolution": "ProxyCore.slnx"
 }

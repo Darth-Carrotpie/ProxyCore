@@ -9,11 +9,21 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 755c6611d5671e747945cb5484f63f6b, type: 3}
+  m_Script: {fileID: 11500000, guid: e9e1961ac7fda7d47951df80a6c37f71, type: 3}
   m_Name: Event_DealDamage
   m_EditorClassIdentifier: ProxyCore::ProxyCore.EventDefinition
-  <ID>k__BackingField: 470402851
-  displayName: Deal Damaage
-  accentColor: {r: 1, g: 1, b: 1, a: 1}
-  eventTypeName: 
+  <ID>k__BackingField: -564538720
+  displayName: Deal Damage
+  shortName: Deal Damage
+  accentColor: {r: 0.8238993, g: 0.189134, b: 0.189134, a: 0.8}
+  categories:
+  - {fileID: 11400000, guid: 93b4b27055c9d0741aa36c7121f127bb, type: 2}
+  - {fileID: 11400000, guid: b0b6c3b51facd4946a96497ff7ed1c50, type: 2}
+  expectedPayloads: []
+  skipPayloadValidation: 0
+  muteDebugLog: 0
   eventTypeFile: {fileID: 0}
+  eventTypeName: 
+  references:
+    version: 2
+    RefIds: []

@@ -1,42 +1,53 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using ProxyCore;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+
 namespace ProxyCore
 {
+    /// <summary>
+    /// Example of event chaining - attaching follow-up events to primary events.
+    /// Attached events always trigger after main listeners complete.
+    /// Useful for patterns like: MakeSomethingHappen -> ThatSomethingHappened
+    /// </summary>
     public class EventChain : MonoBehaviour
     {
-        //This is used for passing the message further for another event.
-        //Functionally it still happens in the same frame, but if to avoid confusion and improve readability we need to use a different event name
-        //Attached events will be always triggered after main ones, but ".Attach" can be done only once.
-        //It could be later improved, but for now there was never an actual need for more than one, i.e.
-        //1. MakeSomethingHappen
-        //2. ThatSomethingHappened
+        // References to EventMessage assets for chaining
+        [SerializeField] private EventMessage primaryEvent;
+        [SerializeField] private EventMessage followUpEvent;
 
-        void Start()
+        private IDisposable _attachment;
+
+        void OnEnable()
         {
-            //EventCoordinator.Attach(EventName.Network.PlayerJoined(), OnPlayerJoinedAttachment);
-            //EventCoordinator.Attach(EventName.UI.ShowScoreScreen(), OnShowScoreScreenAttachment);
+            if (primaryEvent != null)
+            {
+                // Attach a follow-up handler to the primary event
+                EventCoordinatorNew.Attach(primaryEvent, OnPrimaryEventAttachment);
+            }
         }
 
-        void OnDestroy()
+        void OnDisable()
         {
-            //EventCoordinator.Detach(EventName.Network.PlayerJoined(), OnPlayerJoinedAttachment);
-            //EventCoordinator.Detach(EventName.UI.ShowScoreScreen(), OnShowScoreScreenAttachment);
+            if (primaryEvent != null)
+            {
+                EventCoordinatorNew.Detach(primaryEvent, OnPrimaryEventAttachment);
+            }
         }
 
-        void OnShowScoreScreenAttachment(GameMessage msg)
+        void OnPrimaryEventAttachment(EventMessageData data)
         {
-            //If we wanted, we can write some additional information to the message before passing, i.e.
-            GameMessage newMsg = msg.WithIntMessage(42);
-            //Then we write a trigger, like we normally would, but with a different name
-            //EventCoordinator.TriggerEvent(EventName.UI.ScoreScreenShown(), newMsg);
-        }
+            // You can modify or add to the data before passing it on
+            // In this example, we add an int payload
+            data.With(new IntPayload(42));
 
-        void OnPlayerJoinedAttachment(GameMessage msg)
-        {
-            EventCoordinator.TriggerEvent(EventName.Input.Menus.ShowSettings(), msg);
+            // Trigger the follow-up event
+            if (followUpEvent != null)
+            {
+                EventCoordinatorNew.TriggerEventInternal(followUpEvent, data);
+            }
         }
     }
 }
