@@ -3,8 +3,8 @@ using UnityEditor;
 using UnityEngine;
 
 namespace ProxyCore {
-    [CreateAssetMenu(fileName = "NewEventCategory", menuName = "Definitions/Event Category Definition", order = 1)]
-    public class EventCategoryDefinition : BaseDefinition {
+    [CreateAssetMenu(fileName = "EventCategory", menuName = "Definitions/Category Definition", order = 1)]
+    public class CategoryDefinition : BaseDefinition {
         [Header("Category Properties")]
         public string categoryDisplayName;
         public Color categoryDisplayColor;

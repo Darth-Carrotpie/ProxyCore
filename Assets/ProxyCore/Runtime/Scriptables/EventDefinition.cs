@@ -13,17 +13,26 @@ namespace ProxyCore {
     public class EventDefinition : BaseDefinition {
 
         [Header("Base Definition")]
-        [Tooltip("Display base definition properties")]
-        public BaseDefinitionProperties baseDefinitionProperties;
+        //[Tooltip("Display base definition properties")]
+        //public BaseDefinitionProperties baseDefinitionProperties;
+        [Tooltip("Display name shown in UI")]
+        public string displayName;
 
         [Tooltip("Color associated with this resource")]
         public Color accentColor = Color.white;
+        public List<CategoryDefinition> categories;
 
+        public int GetEventID() {
+            return ID;
+        }
+
+        [ReadOnly]
+        [SerializeField]
         private string eventTypeName;
 
 #if UNITY_EDITOR
         [HideInInspector]
-        public MonoScript eventTypeFile;
+        public MonoScript eventTypeFile; // used for GenerateResourceComponent if needed
 #endif
 
 #if UNITY_EDITOR
