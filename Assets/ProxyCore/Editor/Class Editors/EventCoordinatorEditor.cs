@@ -8,7 +8,7 @@ namespace ProxyCore.Editor
     /// Provides buttons to print muted/unmuted events for debugging.
     /// </summary>
     [CustomEditor(typeof(EventCoordinator))]
-    public class EventCoordinatorEditor : UnityEditor.Editor
+    public class EventCoordinatorEditor : BaseRegistryEditor<EventCoordinator, EventMessage>
     {
 
         public override void OnInspectorGUI()

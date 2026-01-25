@@ -11,7 +11,7 @@ namespace ProxyCore.Editor
     /// Custom editor for EventMessage that provides an improved UI for managing expected payloads.
     /// </summary>
     [CustomEditor(typeof(EventMessage))]
-    public class EventMessageEditor : UnityEditor.Editor
+    public class EventMessageEditor : BaseDefinitionEditor<EventMessage>
     {
         private ReorderableList _payloadList;
         private SerializedProperty _expectedPayloadsProperty;
@@ -123,6 +123,9 @@ namespace ProxyCore.Editor
             EditorGUILayout.EndHorizontal();
 
             serializedObject.ApplyModifiedProperties();
+
+            // Draw the refresh button from base class
+            DrawRefreshButton();
         }
 
         private void AddPayloadOfType<T>() where T : IEventMessagePayload, new()

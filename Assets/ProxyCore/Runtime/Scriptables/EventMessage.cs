@@ -132,7 +132,7 @@ namespace ProxyCore
         [HideInInspector]
         public MonoScript eventTypeFile; // Reserved for future use
 
-        [ReadOnly]
+        [ProxyCore.ReadOnly]
         [SerializeField]
         private string eventTypeName;
 
