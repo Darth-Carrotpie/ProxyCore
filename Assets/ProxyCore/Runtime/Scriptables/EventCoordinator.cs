@@ -269,6 +269,31 @@ namespace ProxyCore
             return inst._eventListeners.TryGetValue(id, out var listeners) && listeners.Count > 0;
         }
 
+        /// <summary>
+        /// Called when scene is reloaded and _persistent is false.
+        /// Clears all event subscriptions and attachment listeners to force fresh registrations.
+        /// </summary>
+        protected override void OnSceneReload()
+        {
+            base.OnSceneReload();
+
+            // Clear all event listeners
+            if (_eventListeners != null)
+            {
+                _eventListeners.Clear();
+            }
+
+            // Clear all attachment listeners
+            if (_attachmentListeners != null)
+            {
+                _attachmentListeners.Clear();
+            }
+
+#if UNITY_EDITOR
+            Debug.Log($"EventCoordinator cleared subscriptions on scene reload (persistent={_persistent})");
+#endif
+        }
+
         #endregion
 
         #region Editor Helpers

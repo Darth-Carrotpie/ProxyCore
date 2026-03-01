@@ -21,7 +21,7 @@ MonoBehaviour:
   - {fileID: 11400000, guid: b0b6c3b51facd4946a96497ff7ed1c50, type: 2}
   expectedPayloads:
   - rid: 1859935503656681667
-  skipPayloadValidation: 0
+  skipPayloadValidation: 1
   muteDebugLog: 0
   eventTypeFile: {fileID: 0}
   eventTypeName: 

@@ -1,8 +1,10 @@
 ﻿using JetBrains.Annotations;
 using UnityEditor;
 using UnityEngine;
-namespace ProxyCore {
-    public abstract class Singleton<T> : Singleton where T : MonoBehaviour {
+namespace ProxyCore
+{
+    public abstract class Singleton<T> : Singleton where T : MonoBehaviour
+    {
         #region  Fields
         [CanBeNull]
         private static T _instance;
@@ -16,17 +18,22 @@ namespace ProxyCore {
 
         #region  Properties
         [NotNull]
-        public static T Instance {
-            get {
+        public static T Instance
+        {
+            get
+            {
 
-                if (Quitting) {
+                if (Quitting)
+                {
                     return null;
                 }
-                lock (Lock) {
+                lock (Lock)
+                {
                     if (_instance != null)
                         return _instance;
                     _instance = (T)FindFirstObjectByType(typeof(Singleton<T>));
-                    if (_instance != null) {
+                    if (_instance != null)
+                    {
                         (_instance as Singleton<T>).OnInit();
                         return _instance;
                     }
@@ -37,8 +44,10 @@ namespace ProxyCore {
         #endregion
 
         #region  Methods
-        private void Awake() {
-            if (_persistent) {
+        private void Awake()
+        {
+            if (_persistent)
+            {
 #if UNITY_EDITOR
                 if (EditorApplication.isPlaying)
                     DontDestroyOnLoad(gameObject);
@@ -47,7 +56,8 @@ namespace ProxyCore {
 #endif
             }
             T tempInstance = (T)Instance;
-            if (tempInstance != this) {
+            if (tempInstance != this)
+            {
 #if UNITY_EDITOR
                 if (EditorApplication.isPlaying) {
                     Destroy(this.gameObject);
@@ -63,13 +73,21 @@ namespace ProxyCore {
         protected virtual void OnInit() { }
         #endregion
     }
-    public abstract class Singleton : MonoBehaviour {
+    public abstract class Singleton : MonoBehaviour
+    {
         #region  Properties
         public static bool Quitting { get; set; }
         #endregion
 
         #region  Methods
-        void OnApplicationQuit() {
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics()
+        {
+            Quitting = false;
+        }
+
+        void OnApplicationQuit()
+        {
             Quitting = true;
         }
 

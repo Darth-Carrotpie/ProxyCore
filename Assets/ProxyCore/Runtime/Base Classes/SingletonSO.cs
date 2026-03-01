@@ -1,8 +1,10 @@
 using JetBrains.Annotations;
 using UnityEditor;
 using UnityEngine;
-namespace ProxyCore {
-    public abstract class SingletonSO<T> : SingletonSO where T : ScriptableObject {
+namespace ProxyCore
+{
+    public abstract class SingletonSO<T> : SingletonSO where T : ScriptableObject
+    {
         #region  Fields
         [CanBeNull]
         private static T _instance;
@@ -13,12 +15,16 @@ namespace ProxyCore {
 
         #region  Properties
         [NotNull]
-        public static T Instance {
-            get {
-                if (Quitting) {
+        public static T Instance
+        {
+            get
+            {
+                if (Quitting)
+                {
                     return null;
                 }
-                lock (Lock) {
+                lock (Lock)
+                {
                     if (_instance != null)
                         return _instance;
 
@@ -27,16 +33,19 @@ namespace ProxyCore {
                     //Debug.Log("instance " + _instance);
 
                     // If not found by exact type name, try to find derived types in Resources
-                    if (_instance == null) {
+                    if (_instance == null)
+                    {
                         T[] allResourcesOfType = Resources.LoadAll<T>("");
-                        if (allResourcesOfType.Length > 0) {
+                        if (allResourcesOfType.Length > 0)
+                        {
                             _instance = allResourcesOfType[0];
                             //Debug.Log($"Found in Resources by type search: {_instance.GetType().Name}");
                         }
                     }
 
                     // If not found in Resources, try to find in project assets
-                    if (_instance == null) {
+                    if (_instance == null)
+                    {
 #if UNITY_EDITOR
                         //Debug.Log("instance is null, trying to load");
                         string[] guids = AssetDatabase.FindAssets($"t:{typeof(T).Name}");
@@ -69,7 +78,8 @@ namespace ProxyCore {
                     }
 
                     // If still not found, create a new instance
-                    if (_instance == null) {
+                    if (_instance == null)
+                    {
                         Debug.LogError("Failed to find instance of " + typeof(T).Name + ". Make sure a ScriptableObject of this type exists in the Resources folder or project assets.");
                     }
                     return _instance;
@@ -79,27 +89,70 @@ namespace ProxyCore {
         #endregion
 
         #region  Methods
-        protected virtual void OnEnable() {
-            OnAwake();
-        }
-
-        protected virtual void OnAwake() { }
         protected virtual void OnInit() { }
         #endregion
     }
-    public abstract class SingletonSO : ScriptableObject {
+    public abstract class SingletonSO : ScriptableObject
+    {
+        #region  Fields
+        /// <summary>
+        /// Controls runtime state lifecycle across scene reloads.
+        /// When true (default): runtime state (subscriptions, listeners) persists across scene reloads.
+        /// When false: OnSceneReload() is called to clear runtime state, forcing fresh initialization.
+        /// Note: ScriptableObject assets themselves always persist; this only affects runtime dictionaries/subscriptions.
+        /// </summary>
+        [SerializeField]
+        protected bool _persistent = true;
+        #endregion
+
         #region  Properties
         public static bool Quitting { get; set; }
         #endregion
 
         #region  Methods
-        protected virtual void OnDisable() {
-            // Set quitting flag when the application is shutting down
-            if (Application.isPlaying) {
-                Quitting = true;
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics()
+        {
+            Quitting = false;
+        }
+
+        protected virtual void OnEnable()
+        {
+            Application.quitting += OnApplicationQuitting;
+            UnityEngine.SceneManagement.SceneManager.activeSceneChanged += OnActiveSceneChanged;
+            OnAwake();
+        }
+
+        protected virtual void OnDisable()
+        {
+            Application.quitting -= OnApplicationQuitting;
+            UnityEngine.SceneManagement.SceneManager.activeSceneChanged -= OnActiveSceneChanged;
+        }
+
+        private void OnApplicationQuitting()
+        {
+            Quitting = true;
+        }
+
+        private void OnActiveSceneChanged(UnityEngine.SceneManagement.Scene oldScene, UnityEngine.SceneManagement.Scene newScene)
+        {
+            // Skip if old scene wasn't valid (initial Play Mode entry from editor)
+            // Only clear on legitimate scene-to-scene transitions
+            if (!_persistent && oldScene.IsValid() && oldScene.isLoaded)
+            {
+                OnSceneReload();
             }
         }
 
+        protected virtual void OnAwake() { }
+
+        /// <summary>
+        /// Called when transitioning between scenes and _persistent is false.
+        /// This fires BEFORE the new scene's objects are enabled, ensuring subscriptions are cleared before new registrations.
+        /// Override to clear runtime state (subscriptions, listeners, cached data).
+        /// Note: Does NOT fire on initial Play Mode entry, only on legitimate scene-to-scene transitions (SceneManager.LoadScene).
+        /// </summary>
+        protected virtual void OnSceneReload() { }
         #endregion
     }
 }

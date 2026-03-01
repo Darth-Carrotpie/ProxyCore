@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 61e823ad2f199d44888859f223dd20e3, type: 3}
   m_Name: EventCoordinator
   m_EditorClassIdentifier: ProxyCore::ProxyCore.EventCoordinator
+  _persistent: 0
   definitions:
   - {fileID: 11400000, guid: d6811070b7c2dbf4eb5dcbe029ecdc8b, type: 2}
   - {fileID: 11400000, guid: bc60fdad25aa02c489cf0626b5ef502e, type: 2}
