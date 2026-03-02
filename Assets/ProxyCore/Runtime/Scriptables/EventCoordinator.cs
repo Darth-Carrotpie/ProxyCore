@@ -185,7 +185,7 @@ namespace ProxyCore
                     }
                     catch (Exception ex)
                     {
-                        Debug.LogError($"[EventCoordinator] Error invoking listener for {eventMessage.displayName}: {ex}");
+                        Debug.LogError($"[EventCoordinator] Error invoking listener for {eventMessage.GetDisplayName()}: {ex}");
                     }
                 }
             }
@@ -206,7 +206,7 @@ namespace ProxyCore
                     }
                     catch (Exception ex)
                     {
-                        Debug.LogError($"[EventCoordinator] Error invoking attachment for {eventMessage.displayName}: {ex}");
+                        Debug.LogError($"[EventCoordinator] Error invoking attachment for {eventMessage.GetDisplayName()}: {ex}");
                     }
                 }
             }
@@ -240,7 +240,7 @@ namespace ProxyCore
             if (missing.Count > 0 || extra.Count > 0)
             {
                 var sb = new StringBuilder();
-                sb.AppendLine($"[EventMessage: {eventMessage.displayName}] Payload mismatch!");
+                sb.AppendLine($"[EventMessage: {eventMessage.GetDisplayName()}] Payload mismatch!");
                 sb.AppendLine($"  Expected: {string.Join(", ", expectedTypes.Select(t => t.Name))}");
                 sb.AppendLine($"  Actual: {string.Join(", ", actualTypes.Select(t => t.Name))}");
 
@@ -319,12 +319,15 @@ namespace ProxyCore
         public static string FormatEventForDisplay(EventMessage evt) {
             if (evt == null) return "(null)";
 
+            string effectiveName = evt.GetDisplayName();
             string catPath = evt.GetCategoryPath();
             string displayPath = string.IsNullOrEmpty(catPath)
-                ? evt.displayName
-                : $"{catPath.Replace(".", ">")}>{evt.displayName}";
+                ? effectiveName
+                : $"{catPath.Replace(".", ">")}>{effectiveName}";
 
-            string shortNamePart = string.IsNullOrEmpty(evt.shortName) ? "" : $" ({evt.shortName})";
+            // Show shortName in parens only when displayName is overridden (to reveal the codegen name)
+            string shortNamePart = !string.IsNullOrEmpty(evt.displayName) && !string.IsNullOrEmpty(evt.shortName)
+                ? $" ({evt.shortName})" : "";
             string fileName = evt.name + ".asset";
 
             return $"{displayPath}{shortNamePart}, {fileName}";

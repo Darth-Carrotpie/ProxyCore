@@ -24,9 +24,19 @@ namespace ProxyCore.Editor
         [SerializeField] private Vector2 scrollPosition;
         [SerializeField] private string searchFilter = "";
 
+        // Settings
+        private const string PREF_KEY_NEW_EVENT_PATH = "ProxyCore_EventManager_NewEventPath";
+        private const string DEFAULT_NEW_EVENT_PATH = "Assets/ProxyEvents";
+
+        private string newEventPath
+        {
+            get => EditorPrefs.GetString(PREF_KEY_NEW_EVENT_PATH, DEFAULT_NEW_EVENT_PATH);
+            set => EditorPrefs.SetString(PREF_KEY_NEW_EVENT_PATH, value);
+        }
+
         // Layout constants
-        private const float COLUMN_DISPLAY_NAME = 200f;
-        private const float COLUMN_SHORT_NAME = 150f;
+        private const float COLUMN_SHORT_NAME = 200f;
+        private const float COLUMN_DISPLAY_OVERRIDE = 200f;
         private const float COLUMN_COLOR = 80f;
         private const float COLUMN_CATEGORIES = 150f;
         private const float COLUMN_PAYLOADS = 120f;
@@ -70,8 +80,8 @@ namespace ProxyCore.Editor
                 }
             }
 
-            // Sort by display name
-            allEvents = allEvents.OrderBy(e => e.displayName).ToList();
+            // Sort by short name (primary identifier)
+            allEvents = allEvents.OrderBy(e => e.shortName ?? e.name).ToList();
 
             // Load all CategoryDefinition assets
             string[] categoryGuids = AssetDatabase.FindAssets("t:CategoryDefinition");
@@ -105,6 +115,20 @@ namespace ProxyCore.Editor
 
         private void DrawTopToolbar()
         {
+            // Asset path row
+            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+            GUILayout.Label("New Event Path:", GUILayout.Width(100));
+            EditorGUI.BeginChangeCheck();
+            string editedPath = EditorGUILayout.TextField(newEventPath);
+            if (EditorGUI.EndChangeCheck())
+            {
+                // Ensure it always starts with "Assets/"
+                if (!editedPath.StartsWith("Assets/"))
+                    editedPath = "Assets/" + editedPath.TrimStart('/');
+                newEventPath = editedPath;
+            }
+            EditorGUILayout.EndHorizontal();
+
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
 
             // Title
@@ -213,8 +237,8 @@ namespace ProxyCore.Editor
             // Column headers
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
 
-            GUILayout.Label("Display Name", EditorStyles.boldLabel, GUILayout.Width(COLUMN_DISPLAY_NAME));
             GUILayout.Label("Short Name", EditorStyles.boldLabel, GUILayout.Width(COLUMN_SHORT_NAME));
+            GUILayout.Label(new GUIContent("Display Name", "Optional override. If empty, Short Name is shown."), EditorStyles.boldLabel, GUILayout.Width(COLUMN_DISPLAY_OVERRIDE));
             GUILayout.Label("Color", EditorStyles.boldLabel, GUILayout.Width(COLUMN_COLOR));
             GUILayout.Label("Categories", EditorStyles.boldLabel, GUILayout.Width(COLUMN_CATEGORIES));
             GUILayout.Label("Payloads", EditorStyles.boldLabel, GUILayout.Width(COLUMN_PAYLOADS));
@@ -247,23 +271,48 @@ namespace ProxyCore.Editor
         {
             EditorGUILayout.BeginHorizontal();
 
-            // Display Name
+            // Short Name (primary identifier) — uses DelayedTextField so changes commit on Enter/blur
             EditorGUI.BeginChangeCheck();
-            string newDisplayName = EditorGUILayout.TextField(evt.displayName ?? "", GUILayout.Width(COLUMN_DISPLAY_NAME));
-            if (EditorGUI.EndChangeCheck())
-            {
-                evt.displayName = newDisplayName;
-                MarkDirty(evt);
-            }
-
-            // Short Name
-            EditorGUI.BeginChangeCheck();
-            string newShortName = EditorGUILayout.TextField(evt.shortName ?? "", GUILayout.Width(COLUMN_SHORT_NAME));
+            string newShortName = EditorGUILayout.DelayedTextField(evt.shortName ?? "", GUILayout.Width(COLUMN_SHORT_NAME));
             if (EditorGUI.EndChangeCheck())
             {
                 evt.shortName = newShortName;
                 MarkDirty(evt);
             }
+
+            // Display Name (override) — greyed out when showing fallback from shortName
+            bool isOverridden = !string.IsNullOrEmpty(evt.displayName);
+            string displayValue = isOverridden ? evt.displayName : (evt.shortName ?? evt.name);
+
+            Color originalContentColor = GUI.contentColor;
+            if (!isOverridden)
+            {
+                GUI.contentColor = new Color(
+                    originalContentColor.r,
+                    originalContentColor.g,
+                    originalContentColor.b,
+                    0.4f
+                );
+            }
+
+            EditorGUI.BeginChangeCheck();
+            string newDisplayName = EditorGUILayout.TextField(displayValue, GUILayout.Width(COLUMN_DISPLAY_OVERRIDE));
+            if (EditorGUI.EndChangeCheck())
+            {
+                // If cleared or matches shortName, remove override
+                if (string.IsNullOrEmpty(newDisplayName) ||
+                    newDisplayName == (evt.shortName ?? evt.name))
+                {
+                    evt.displayName = "";
+                }
+                else
+                {
+                    evt.displayName = newDisplayName;
+                }
+                MarkDirty(evt);
+            }
+
+            GUI.contentColor = originalContentColor;
 
             // Accent Color
             EditorGUI.BeginChangeCheck();
@@ -387,8 +436,8 @@ namespace ProxyCore.Editor
             {
                 string searchLower = searchFilter.ToLower();
                 filtered = filtered.Where(e =>
-                    (e.displayName != null && e.displayName.ToLower().Contains(searchLower)) ||
-                    (e.shortName != null && e.shortName.ToLower().Contains(searchLower))
+                    (e.shortName != null && e.shortName.ToLower().Contains(searchLower)) ||
+                    (e.GetDisplayName() != null && e.GetDisplayName().ToLower().Contains(searchLower))
                 );
             }
 
@@ -465,7 +514,7 @@ namespace ProxyCore.Editor
 
         private void ConfirmDelete(EventMessage evt)
         {
-            string message = $"Are you sure you want to delete event '{evt.displayName}'?\n\nThis action will be applied when you click Save.";
+            string message = $"Are you sure you want to delete event '{evt.GetDisplayName()}'?\n\nThis action will be applied when you click Save.";
 
             if (EditorUtility.DisplayDialog("Confirm Deletion", message, "Delete", "Cancel"))
             {
@@ -479,30 +528,46 @@ namespace ProxyCore.Editor
             }
         }
 
+        /// <summary>
+        /// Ensures all folders in the given path exist, creating them recursively if needed.
+        /// </summary>
+        private static void EnsureFolderExists(string folderPath)
+        {
+            if (AssetDatabase.IsValidFolder(folderPath)) return;
+
+            string parent = System.IO.Path.GetDirectoryName(folderPath)?.Replace('\\', '/');
+            if (!string.IsNullOrEmpty(parent) && !AssetDatabase.IsValidFolder(parent))
+            {
+                EnsureFolderExists(parent);
+            }
+
+            string folderName = System.IO.Path.GetFileName(folderPath);
+            AssetDatabase.CreateFolder(parent, folderName);
+        }
+
         private void CreateNewEvent()
         {
             // Create directory if it doesn't exist
-            string targetDir = "Assets/ProxyEvents";
-            if (!AssetDatabase.IsValidFolder(targetDir))
-            {
-                AssetDatabase.CreateFolder("Assets", "ProxyEvents");
-            }
+            string targetDir = newEventPath.TrimEnd('/');
+            EnsureFolderExists(targetDir);
 
-            // Generate unique name
-            string baseName = "NewEvent";
-            string assetPath = $"{targetDir}/{baseName}.asset";
+            // Generate unique name: "NewEvent Event Message", "NewEvent_1 Event Message", etc.
+            string baseShortName = "NewEvent";
+            string assetPath = $"{targetDir}/{baseShortName} Event Message.asset";
             int counter = 1;
 
             while (AssetDatabase.LoadAssetAtPath<EventMessage>(assetPath) != null)
             {
-                assetPath = $"{targetDir}/{baseName}_{counter}.asset";
+                assetPath = $"{targetDir}/{baseShortName}_{counter} Event Message.asset";
                 counter++;
             }
 
             // Create the asset
             EventMessage newEvent = ScriptableObject.CreateInstance<EventMessage>();
-            newEvent.displayName = baseName;
-            newEvent.shortName = baseName;
+            newEvent.displayName = ""; // Empty = use shortName as fallback
+            // Use first word of the asset file name as shortName
+            string fileName = System.IO.Path.GetFileNameWithoutExtension(assetPath);
+            newEvent.shortName = fileName.Split(' ')[0];
             newEvent.accentColor = Color.white;
             newEvent.categories = new List<CategoryDefinition>();
             newEvent.expectedPayloads = new List<IEventMessagePayload>();
@@ -534,6 +599,30 @@ namespace ProxyCore.Editor
                     if (evt != null)
                     {
                         EditorUtility.SetDirty(evt);
+                    }
+                }
+
+                // Rename assets whose shortName differs from the first word of the asset name
+                foreach (var evt in dirtyEvents)
+                {
+                    if (evt != null && !string.IsNullOrEmpty(evt.shortName))
+                    {
+                        string currentFirstWord = evt.name.Split(' ')[0];
+                        if (evt.shortName != currentFirstWord)
+                        {
+                            string path = AssetDatabase.GetAssetPath(evt);
+                            if (!string.IsNullOrEmpty(path))
+                            {
+                                // Replace only the first word, keep the rest of the asset name
+                                string rest = evt.name.Contains(" ") ? evt.name.Substring(evt.name.IndexOf(' ')) : "";
+                                string newAssetName = evt.shortName + rest;
+                                string result = AssetDatabase.RenameAsset(path, newAssetName);
+                                if (!string.IsNullOrEmpty(result))
+                                {
+                                    Debug.LogWarning($"[Event Manager] Failed to rename '{evt.name}' to '{newAssetName}': {result}");
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -647,7 +736,7 @@ namespace ProxyCore.Editor
                 return;
             }
 
-            EditorGUILayout.LabelField($"Event: {targetEvent.displayName}", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField($"Event: {targetEvent.GetDisplayName()}", EditorStyles.boldLabel);
             EditorGUILayout.Space();
 
             EditorGUILayout.HelpBox("Edit the expected payload types for this event. This list is used for validation when triggering events.", MessageType.Info);

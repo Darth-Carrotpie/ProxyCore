@@ -17,11 +17,11 @@ namespace ProxyCore
     {
 
         [Header("Event Identity")]
-        [Tooltip("Display name shown in UI and debug logs")]
-        public string displayName;
-
-        [Tooltip("Short name used in code generation and compact displays")]
+        [Tooltip("Primary name for this event. Used in code generation, compact displays, and as the asset filename.")]
         public string shortName;
+
+        [Tooltip("Optional display name override. If empty, shortName is used. Set this to show a different name in UI and debug logs.")]
+        public string displayName;
 
         [Tooltip("Color associated with this event for visual identification")]
         public Color accentColor = Color.white;
@@ -52,16 +52,29 @@ namespace ProxyCore
         }
 
         /// <summary>
+        /// Gets the effective display name for UI and logs.
+        /// Returns displayName if set (override), otherwise falls back to shortName, then asset name.
+        /// </summary>
+        public string GetDisplayName()
+        {
+            if (!string.IsNullOrEmpty(displayName))
+                return displayName;
+
+            if (!string.IsNullOrEmpty(shortName))
+                return shortName;
+
+            return name;
+        }
+
+        /// <summary>
         /// Gets the name to use for code generation.
-        /// Uses shortName if available, otherwise sanitizes displayName.
+        /// Uses shortName if available, otherwise falls back to asset name.
+        /// displayName is intentionally excluded to prevent cosmetic overrides from changing generated API names.
         /// </summary>
         public string GetCodeGenName()
         {
             if (!string.IsNullOrEmpty(shortName))
                 return SanitizeForCodeGen(shortName);
-
-            if (!string.IsNullOrEmpty(displayName))
-                return SanitizeForCodeGen(displayName);
 
             return SanitizeForCodeGen(name);
         }
@@ -137,6 +150,19 @@ namespace ProxyCore
         private string eventTypeName;
 
         private void OnValidate() {
+            // Bidirectional sync: keep shortName and asset name in sync.
+            // If asset was renamed externally (e.g., in Project window), update shortName to match.
+            // Uses only the first word of the asset name (split by space).
+            if (string.IsNullOrEmpty(shortName) || shortName != name)
+            {
+                string firstWord = name.Split(' ')[0];
+                string sanitizedFirst = SanitizeForCodeGen(firstWord);
+                if (string.IsNullOrEmpty(shortName) || SanitizeForCodeGen(shortName) != sanitizedFirst)
+                {
+                    shortName = firstWord;
+                }
+            }
+
             if (eventTypeFile == null) {
                 eventTypeName = string.Empty;
                 return;
