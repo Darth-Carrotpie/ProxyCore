@@ -36,7 +36,8 @@ namespace ProxyCore.Editor
 
         // Layout constants
         private const float COLUMN_SHORT_NAME = 200f;
-        private const float COLUMN_DISPLAY_OVERRIDE = 200f;
+        private const float COLUMN_DISPLAY_OVERRIDE = 150f;
+        private const float COLUMN_DESCRIPTION = 440f;
         private const float COLUMN_COLOR = 80f;
         private const float COLUMN_CATEGORIES = 150f;
         private const float COLUMN_PAYLOADS = 120f;
@@ -187,43 +188,49 @@ namespace ProxyCore.Editor
 
         private void DrawCategoryFilter()
         {
-            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
-
-            GUILayout.Label("Filter:", GUILayout.Width(50));
-
-            // ALL button
-            bool isAll = selectedCategory == null;
+            float availableWidth = position.width - 4f;
             Color originalBg = GUI.backgroundColor;
-            if (isAll)
-            {
-                GUI.backgroundColor = new Color(0.7f, 0.7f, 1f);
-            }
+            var buttonStyle = EditorStyles.toolbarButton;
+            const float filterLabelWidth = 50f;
 
-            if (GUILayout.Button($"ALL ({allEvents.Count})", EditorStyles.toolbarButton, GUILayout.Width(80)))
-            {
-                selectedCategory = null;
-            }
+            // Build button descriptors: (label, width, onClick, isSelected)
+            var buttons = new List<(string label, float width, System.Action onClick, bool isSelected)>();
 
-            GUI.backgroundColor = originalBg;
+            string allLabel = $"ALL ({allEvents.Count})";
+            float allWidth = Mathf.Max(80f, buttonStyle.CalcSize(new GUIContent(allLabel)).x);
+            buttons.Add((allLabel, allWidth, () => selectedCategory = null, selectedCategory == null));
 
-            // Category buttons
             foreach (var category in allCategories)
             {
-                bool isSelected = selectedCategory == category;
-                if (isSelected)
-                {
-                    GUI.backgroundColor = new Color(0.7f, 0.7f, 1f);
-                }
-
                 int count = allEvents.Count(e => e.categories != null && e.categories.Contains(category));
-                string displayName = string.IsNullOrEmpty(category.categoryDisplayName) ? category.name : category.categoryDisplayName;
+                string dispName = string.IsNullOrEmpty(category.categoryDisplayName) ? category.name : category.categoryDisplayName;
+                string label = $"{dispName} ({count})";
+                float w = Mathf.Min(150f, Mathf.Max(60f, buttonStyle.CalcSize(new GUIContent(label)).x));
+                var cat = category;
+                buttons.Add((label, w, () => selectedCategory = cat, selectedCategory == category));
+            }
 
-                if (GUILayout.Button($"{displayName} ({count})", EditorStyles.toolbarButton, GUILayout.MaxWidth(150)))
+            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+            GUILayout.Label("Filter:", GUILayout.Width(filterLabelWidth));
+            float currentX = filterLabelWidth + 4f;
+
+            for (int i = 0; i < buttons.Count; i++)
+            {
+                var (label, width, onClick, isSelected) = buttons[i];
+
+                if (currentX + width > availableWidth && i > 0)
                 {
-                    selectedCategory = category;
+                    EditorGUILayout.EndHorizontal();
+                    EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+                    GUILayout.Space(filterLabelWidth + 4f);
+                    currentX = filterLabelWidth + 4f;
                 }
 
+                if (isSelected) GUI.backgroundColor = new Color(0.7f, 0.7f, 1f);
+                if (GUILayout.Button(label, buttonStyle, GUILayout.Width(width)))
+                    onClick();
                 GUI.backgroundColor = originalBg;
+                currentX += width + 2f;
             }
 
             EditorGUILayout.EndHorizontal();
@@ -235,15 +242,17 @@ namespace ProxyCore.Editor
             DrawCategoryFilter();
 
             // Column headers
+            var centeredBold = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter };
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
 
-            GUILayout.Label("Short Name", EditorStyles.boldLabel, GUILayout.Width(COLUMN_SHORT_NAME));
-            GUILayout.Label(new GUIContent("Display Name", "Optional override. If empty, Short Name is shown."), EditorStyles.boldLabel, GUILayout.Width(COLUMN_DISPLAY_OVERRIDE));
-            GUILayout.Label("Color", EditorStyles.boldLabel, GUILayout.Width(COLUMN_COLOR));
-            GUILayout.Label("Categories", EditorStyles.boldLabel, GUILayout.Width(COLUMN_CATEGORIES));
-            GUILayout.Label("Payloads", EditorStyles.boldLabel, GUILayout.Width(COLUMN_PAYLOADS));
-            GUILayout.Label("Debug", EditorStyles.boldLabel, GUILayout.Width(COLUMN_DEBUG));
-            GUILayout.Label("Actions", EditorStyles.boldLabel, GUILayout.Width(COLUMN_ACTIONS));
+            GUILayout.Label("Short Name", centeredBold, GUILayout.Width(COLUMN_SHORT_NAME));
+            GUILayout.Label(new GUIContent("Display Name", "Optional override. If empty, Short Name is shown."), centeredBold, GUILayout.Width(COLUMN_DISPLAY_OVERRIDE));
+            GUILayout.Label("Color", centeredBold, GUILayout.Width(COLUMN_COLOR));
+            GUILayout.Label("Categories", centeredBold, GUILayout.Width(COLUMN_CATEGORIES));
+            GUILayout.Label("Payloads", centeredBold, GUILayout.Width(COLUMN_PAYLOADS));
+            GUILayout.Label("Debug", centeredBold, GUILayout.Width(COLUMN_DEBUG));
+            GUILayout.Label("Actions", centeredBold, GUILayout.Width(COLUMN_ACTIONS));
+            GUILayout.Label(new GUIContent("Description", "Describes what this event is used for and when it should be triggered."), centeredBold, GUILayout.Width(COLUMN_DESCRIPTION));
 
             EditorGUILayout.EndHorizontal();
 
@@ -380,6 +389,15 @@ namespace ProxyCore.Editor
             GUI.backgroundColor = originalBg;
 
             EditorGUILayout.EndHorizontal();
+
+            // Description
+            EditorGUI.BeginChangeCheck();
+            string newDescription = EditorGUILayout.TextArea(evt.eventDescription ?? "", GUILayout.Width(COLUMN_DESCRIPTION), GUILayout.Height(ROW_HEIGHT * 2));
+            if (EditorGUI.EndChangeCheck())
+            {
+                evt.eventDescription = newDescription;
+                MarkDirty(evt);
+            }
 
             EditorGUILayout.EndHorizontal();
 

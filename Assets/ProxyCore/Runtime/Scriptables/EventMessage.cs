@@ -23,6 +23,10 @@ namespace ProxyCore
         [Tooltip("Optional display name override. If empty, shortName is used. Set this to show a different name in UI and debug logs.")]
         public string displayName;
 
+        [Tooltip("Describes what this event is used for and when it should be triggered. For documentation and editor reference only.")]
+        [TextArea(2, 5)]
+        public string eventDescription;
+
         [Tooltip("Color associated with this event for visual identification")]
         public Color accentColor = Color.white;
 
