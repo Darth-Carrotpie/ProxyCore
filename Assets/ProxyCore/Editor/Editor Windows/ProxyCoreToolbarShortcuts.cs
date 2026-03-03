@@ -13,6 +13,25 @@ namespace ProxyCore.Editor
     //   2. Append the ID to ProxyCoreToolsOverlay's base() constructor.
 
     [EditorToolbarElement(ID)]
+    sealed class EventDebugMonitorToolbarButton : EditorToolbarButton
+    {
+        public const string ID = "ProxyCore/EventDebugMonitorButton";
+
+        public EventDebugMonitorToolbarButton()
+        {
+            tooltip = "Event Debug Monitor";
+            clicked += EventDebugMonitorWindow.ShowWindow;
+            RegisterCallback<AttachToPanelEvent>(OnAttach);
+        }
+
+        void OnAttach(AttachToPanelEvent _)
+        {
+            var content = EditorGUIUtility.IconContent("d_UnityEditor.AnimationWindow");
+            if (content != null) icon = content.image as Texture2D;
+        }
+    }
+
+    [EditorToolbarElement(ID)]
     sealed class EventManagerToolbarButton : EditorToolbarButton
     {
         public const string ID = "ProxyCore/EventManagerButton";
@@ -39,7 +58,8 @@ namespace ProxyCore.Editor
     sealed class ProxyCoreToolsOverlay : ToolbarOverlay
     {
         ProxyCoreToolsOverlay() : base(
-            EventManagerToolbarButton.ID
+            EventManagerToolbarButton.ID,
+            EventDebugMonitorToolbarButton.ID
         )
         { }
     }

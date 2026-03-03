@@ -373,16 +373,23 @@ namespace ProxyCore.Editor
             EditorGUILayout.BeginHorizontal(GUILayout.Width(COLUMN_ACTIONS));
 
             // Edit button (ping asset)
-            if (GUILayout.Button("📝", GUILayout.Width(30)))
+            if (GUILayout.Button("📝", GUILayout.Width(24)))
             {
                 EditorGUIUtility.PingObject(evt);
                 Selection.activeObject = evt;
             }
 
+            // Monitor button (open debug monitor with this event selected)
+            var monitorIcon = EditorGUIUtility.IconContent("d_UnityEditor.AnimationWindow");
+            if (GUILayout.Button(monitorIcon, GUILayout.Width(24), GUILayout.Height(18)))
+            {
+                EventDebugMonitorWindow.ShowWindow(evt);
+            }
+
             // Delete button
             Color originalBg = GUI.backgroundColor;
             GUI.backgroundColor = new Color(1f, 0.5f, 0.5f);
-            if (GUILayout.Button("🗑", GUILayout.Width(30)))
+            if (GUILayout.Button("🗑", GUILayout.Width(24)))
             {
                 ConfirmDelete(evt);
             }

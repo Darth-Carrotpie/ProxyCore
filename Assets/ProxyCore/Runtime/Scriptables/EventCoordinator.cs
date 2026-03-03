@@ -26,6 +26,20 @@ namespace ProxyCore
         private Dictionary<int, List<Action<EventMessageData>>> _eventListeners;
         private Dictionary<int, List<Action<EventMessageData>>> _attachmentListeners;
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        /// <summary>
+        /// Called by EventDebugTracker when capture is active.
+        /// Fired in TriggerEventInternal BEFORE listeners are invoked (so payload data is still valid).
+        /// Null when no monitor is listening — the ?.Invoke short-circuits at zero cost.
+        /// </summary>
+        public static Action<EventMessage, EventMessageData> OnEventTriggered;
+
+        /// <summary>
+        /// Called when a listener is added or removed. The bool is true for add, false for remove.
+        /// </summary>
+        public static Action<EventMessage, Delegate, bool> OnListenerChanged;
+#endif
+
         protected override void OnInit()
         {
             base.OnInit();
@@ -78,6 +92,9 @@ namespace ProxyCore
             if (!listeners.Contains(listener))
             {
                 listeners.Add(listener);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                OnListenerChanged?.Invoke(eventMessage, listener, true);
+#endif
             }
         }
 
@@ -94,7 +111,12 @@ namespace ProxyCore
             int id = eventMessage.ID;
             if (inst._eventListeners.TryGetValue(id, out var listeners))
             {
-                listeners.Remove(listener);
+                if (listeners.Remove(listener))
+                {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                    OnListenerChanged?.Invoke(eventMessage, listener, false);
+#endif
+                }
             }
         }
 
@@ -125,6 +147,9 @@ namespace ProxyCore
             if (!listeners.Contains(listener))
             {
                 listeners.Add(listener);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                OnListenerChanged?.Invoke(eventMessage, listener, true);
+#endif
             }
         }
 
@@ -141,7 +166,12 @@ namespace ProxyCore
             int id = eventMessage.ID;
             if (inst._attachmentListeners.TryGetValue(id, out var listeners))
             {
-                listeners.Remove(listener);
+                if (listeners.Remove(listener))
+                {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                    OnListenerChanged?.Invoke(eventMessage, listener, false);
+#endif
+                }
             }
         }
 
@@ -173,6 +203,11 @@ namespace ProxyCore
             {
                 Debug.Log($"[Event] {eventMessage.GetFullPath()}: {data}");
             }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            // Notify debug monitor (before listeners, so payload data is still valid)
+            OnEventTriggered?.Invoke(eventMessage, data);
+#endif
 
             // Invoke main listeners
             if (inst._eventListeners.TryGetValue(id, out var listeners))
@@ -268,6 +303,56 @@ namespace ProxyCore
             int id = eventMessage.ID;
             return inst._eventListeners.TryGetValue(id, out var listeners) && listeners.Count > 0;
         }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        /// <summary>
+        /// Gets the total number of listeners (main + attachment) for the specified event.
+        /// Used by the Event Debug Monitor window.
+        /// </summary>
+        public static int GetListenerCount(EventMessage eventMessage)
+        {
+            var inst = Instance as EventCoordinator;
+            if (inst == null || eventMessage == null) return 0;
+
+            inst.InitializeDictionaries();
+            int id = eventMessage.ID;
+            int count = 0;
+
+            if (inst._eventListeners.TryGetValue(id, out var mainListeners))
+                count += mainListeners.Count;
+            if (inst._attachmentListeners.TryGetValue(id, out var attachListeners))
+                count += attachListeners.Count;
+
+            return count;
+        }
+
+        /// <summary>
+        /// Gets a snapshot of all listeners (main + attachment) for the specified event.
+        /// Returns Delegate instances so the caller can inspect Target and Method.
+        /// </summary>
+        public static List<Delegate> GetListeners(EventMessage eventMessage)
+        {
+            var result = new List<Delegate>();
+            var inst = Instance as EventCoordinator;
+            if (inst == null || eventMessage == null) return result;
+
+            inst.InitializeDictionaries();
+            int id = eventMessage.ID;
+
+            if (inst._eventListeners.TryGetValue(id, out var mainListeners))
+            {
+                foreach (var l in mainListeners)
+                    result.Add(l);
+            }
+            if (inst._attachmentListeners.TryGetValue(id, out var attachListeners))
+            {
+                foreach (var l in attachListeners)
+                    result.Add(l);
+            }
+
+            return result;
+        }
+#endif
 
         /// <summary>
         /// Called when scene is reloaded and _persistent is false.
