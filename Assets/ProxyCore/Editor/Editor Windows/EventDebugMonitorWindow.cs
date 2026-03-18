@@ -1,4 +1,5 @@
 #if UNITY_EDITOR
+#pragma warning disable CS0618 // IMGUI TreeView/TreeViewItem/TreeViewState APIs are obsolete but required for this window
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -1214,4 +1215,5 @@ namespace ProxyCore.Editor
         }
     }
 }
+#pragma warning restore CS0618
 #endif

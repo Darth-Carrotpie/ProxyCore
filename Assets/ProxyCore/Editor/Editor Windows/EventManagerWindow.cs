@@ -18,21 +18,32 @@ namespace ProxyCore.Editor
         private List<CategoryDefinition> allCategories = new List<CategoryDefinition>();
         private HashSet<EventMessage> dirtyEvents = new HashSet<EventMessage>();
         private List<EventMessage> eventsToDelete = new List<EventMessage>();
+        private HashSet<EventMessage> newlyCreatedEvents = new HashSet<EventMessage>();
+
+        // New-event focus state
+        private bool showingNewOnly = false;
+        private EventMessage pendingFocusEvent = null;
+        private int pendingFocusFrames = 0;
 
         // UI State
         [SerializeField] private CategoryDefinition selectedCategory = null; // null = ALL
         [SerializeField] private Vector2 scrollPosition;
         [SerializeField] private string searchFilter = "";
 
-        // Settings
-        private const string PREF_KEY_NEW_EVENT_PATH = "ProxyCore_EventManager_NewEventPath";
+        // Settings — path selector
+        private const string PREF_KEY_SELECTED_PATH = "ProxyCore_EventManager_NewEventPath"; // key kept for back-compat
+        private const string PREF_KEY_EXTRA_PATHS   = "ProxyCore_EventManager_ExtraPaths";
         private const string DEFAULT_NEW_EVENT_PATH = "Assets/ProxyEvents";
 
-        private string newEventPath
-        {
-            get => EditorPrefs.GetString(PREF_KEY_NEW_EVENT_PATH, DEFAULT_NEW_EVENT_PATH);
-            set => EditorPrefs.SetString(PREF_KEY_NEW_EVENT_PATH, value);
-        }
+        private List<string> knownPaths = new List<string>();
+        private int selectedPathIndex = 0;
+        private bool addingNewPath = false;
+        private string newPathInput = "";
+
+        // Computed from the current dropdown selection
+        private string newEventPath => selectedPathIndex >= 0 && selectedPathIndex < knownPaths.Count
+            ? knownPaths[selectedPathIndex]
+            : DEFAULT_NEW_EVENT_PATH;
 
         // Layout constants
         private const float COLUMN_SHORT_NAME = 200f;
@@ -100,6 +111,95 @@ namespace ProxyCore.Editor
 
             // Sort by display name
             allCategories = allCategories.OrderBy(c => c.categoryDisplayName).ToList();
+
+            // Remove references to assets that were deleted outside this window
+            newlyCreatedEvents?.RemoveWhere(e => e == null);
+
+            RefreshKnownPaths();
+        }
+
+        /// <summary>
+        /// Removes manually-pinned extra paths that no longer contain any EventMessage
+        /// assets so the dropdown stays clean. Calls LoadAllData to rebuild the full list.
+        /// </summary>
+        private void PruneStalePaths()
+        {
+            // Build the set of folders that genuinely contain events right now.
+            // Exclude events pending deletion — they are logically gone from the designer's
+            // point of view even though they still live in allEvents until Save is clicked.
+            var realFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var evt in allEvents)
+            {
+                if (eventsToDelete.Contains(evt)) continue;
+                string ap = AssetDatabase.GetAssetPath(evt);
+                if (string.IsNullOrEmpty(ap)) continue;
+                string dir = System.IO.Path.GetDirectoryName(ap)?.Replace('\\', '/');
+                if (!string.IsNullOrEmpty(dir))
+                    realFolders.Add(dir);
+            }
+
+            // Filter PREF_KEY_EXTRA_PATHS: keep only paths that currently have events.
+            // The default path is no longer special-cased — if it has no events after
+            // Refresh it is treated like any other manually-added path.
+            string existing = EditorPrefs.GetString(PREF_KEY_EXTRA_PATHS, "");
+            if (!string.IsNullOrEmpty(existing))
+            {
+                var kept = existing.Split(';')
+                    .Select(p => p.Trim())
+                    .Where(p => !string.IsNullOrEmpty(p))
+                    .Where(p => realFolders.Contains(p))
+                    .ToList();
+                EditorPrefs.SetString(PREF_KEY_EXTRA_PATHS, string.Join(";", kept));
+            }
+
+            // Reload everything — RefreshKnownPaths is called inside LoadAllData
+            LoadAllData();
+        }
+
+        /// <summary>
+        /// Rebuilds the list of known event-asset folders by scanning existing assets
+        /// and merging with any manually added paths stored in EditorPrefs.
+        /// Restores the previous path selection from EditorPrefs.
+        /// </summary>
+        private void RefreshKnownPaths()
+        {
+            var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // 1. Discover folders that already contain EventMessage assets
+            foreach (var evt in allEvents)
+            {
+                string assetPath = AssetDatabase.GetAssetPath(evt);
+                if (string.IsNullOrEmpty(assetPath)) continue;
+                string dir = System.IO.Path.GetDirectoryName(assetPath)?.Replace('\\', '/');
+                if (!string.IsNullOrEmpty(dir))
+                    paths.Add(dir);
+            }
+
+            // 2. Merge manually pinned paths from EditorPrefs
+            string extras = EditorPrefs.GetString(PREF_KEY_EXTRA_PATHS, "");
+            if (!string.IsNullOrEmpty(extras))
+            {
+                foreach (string p in extras.Split(';'))
+                {
+                    string trimmed = p.Trim();
+                    if (!string.IsNullOrEmpty(trimmed))
+                        paths.Add(trimmed);
+                }
+            }
+
+            // 3. Add the default path only when its folder actually exists.
+            //    If no paths were discovered at all, add it unconditionally so the
+            //    dropdown is never empty (it will be created on first use).
+            if (paths.Count == 0 || AssetDatabase.IsValidFolder(DEFAULT_NEW_EVENT_PATH))
+                paths.Add(DEFAULT_NEW_EVENT_PATH);
+
+            knownPaths = paths.OrderBy(p => p).ToList();
+
+            // 4. Restore the previously selected path
+            string saved = EditorPrefs.GetString(PREF_KEY_SELECTED_PATH, DEFAULT_NEW_EVENT_PATH);
+            selectedPathIndex = knownPaths.FindIndex(p =>
+                string.Equals(p, saved, StringComparison.OrdinalIgnoreCase));
+            if (selectedPathIndex < 0) selectedPathIndex = 0;
         }
 
         private void OnGUI()
@@ -112,23 +212,25 @@ namespace ProxyCore.Editor
 
             // Handle keyboard shortcuts
             HandleKeyboardShortcuts();
+
+            // Focus the short name field of a newly created event for 2–3 frames to ensure the control is rendered
+            if (pendingFocusEvent != null)
+            {
+                string controlName = $"shortName_{pendingFocusEvent.GetInstanceID()}";
+                EditorGUI.FocusTextInControl(controlName);
+                pendingFocusFrames++;
+                if (pendingFocusFrames > 2)
+                {
+                    pendingFocusEvent = null;
+                    pendingFocusFrames = 0;
+                }
+                Repaint();
+            }
         }
 
         private void DrawTopToolbar()
         {
-            // Asset path row
-            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
-            GUILayout.Label("New Event Path:", GUILayout.Width(100));
-            EditorGUI.BeginChangeCheck();
-            string editedPath = EditorGUILayout.TextField(newEventPath);
-            if (EditorGUI.EndChangeCheck())
-            {
-                // Ensure it always starts with "Assets/"
-                if (!editedPath.StartsWith("Assets/"))
-                    editedPath = "Assets/" + editedPath.TrimStart('/');
-                newEventPath = editedPath;
-            }
-            EditorGUILayout.EndHorizontal();
+            DrawPathSelector();
 
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
 
@@ -170,6 +272,100 @@ namespace ProxyCore.Editor
             EditorGUILayout.EndHorizontal();
         }
 
+        /// <summary>
+        /// Draws the event-path dropdown row (and optional new-path input row).
+        /// </summary>
+        private void DrawPathSelector()
+        {
+            // Sentinel indices beyond the real path list
+            const int SENTINEL_NEW_PATH     = 0; // offset from knownPaths.Count
+            const int SENTINEL_REFRESH      = 1;
+
+            // Display paths with " › " (spaced single right angle quotation) as the
+            // segment separator. This is visually clear and does NOT trigger Unity's
+            // Popup submenu-splitting which fires on '/'.
+            string[] popupLabels = knownPaths
+                .Select(p => p.Replace("/", " \u203a "))
+                .Append("+ New Path\u2026")
+                .Append("\u21bb Refresh Paths")
+                .ToArray();
+
+            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+            GUILayout.Label("Event Path:", GUILayout.Width(75));
+
+            int displayIndex = Mathf.Clamp(selectedPathIndex, 0, knownPaths.Count - 1);
+            int chosen = EditorGUILayout.Popup(displayIndex, popupLabels, EditorStyles.toolbarPopup);
+
+            if (chosen == knownPaths.Count + SENTINEL_NEW_PATH) // "+ New Path…"
+            {
+                addingNewPath = true;
+                if (string.IsNullOrEmpty(newPathInput))
+                    newPathInput = newEventPath;
+            }
+            else if (chosen == knownPaths.Count + SENTINEL_REFRESH) // "↻ Refresh Paths"
+            {
+                PruneStalePaths();
+            }
+            else if (chosen != selectedPathIndex)
+            {
+                selectedPathIndex = chosen;
+                addingNewPath = false;
+                EditorPrefs.SetString(PREF_KEY_SELECTED_PATH, newEventPath);
+            }
+
+            EditorGUILayout.EndHorizontal();
+
+            if (!addingNewPath) return;
+
+            // ── New-path input row ─────────────────────────────────────────────
+            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+            GUILayout.Label("New Path:", GUILayout.Width(75));
+            newPathInput = EditorGUILayout.TextField(newPathInput);
+
+            if (GUILayout.Button("Add", EditorStyles.toolbarButton, GUILayout.Width(45)))
+            {
+                string trimmed = newPathInput.Trim().TrimEnd('/');
+                if (!trimmed.StartsWith("Assets/"))
+                    trimmed = "Assets/" + trimmed.TrimStart('/');
+
+                if (!string.IsNullOrEmpty(trimmed) && trimmed != "Assets")
+                {
+                    // Persist as extra if not already discovered automatically
+                    if (!knownPaths.Any(p => string.Equals(p, trimmed, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        string existing = EditorPrefs.GetString(PREF_KEY_EXTRA_PATHS, "");
+                        var extraList = string.IsNullOrEmpty(existing)
+                            ? new List<string>()
+                            : existing.Split(';').Where(x => !string.IsNullOrEmpty(x.Trim())).ToList();
+                        if (!extraList.Any(p => string.Equals(p, trimmed, StringComparison.OrdinalIgnoreCase)))
+                            extraList.Add(trimmed);
+                        EditorPrefs.SetString(PREF_KEY_EXTRA_PATHS, string.Join(";", extraList));
+                    }
+
+                    RefreshKnownPaths();
+
+                    int idx = knownPaths.FindIndex(p =>
+                        string.Equals(p, trimmed, StringComparison.OrdinalIgnoreCase));
+                    if (idx >= 0)
+                    {
+                        selectedPathIndex = idx;
+                        EditorPrefs.SetString(PREF_KEY_SELECTED_PATH, trimmed);
+                    }
+                }
+
+                addingNewPath = false;
+                newPathInput = "";
+            }
+
+            if (GUILayout.Button("Cancel", EditorStyles.toolbarButton, GUILayout.Width(55)))
+            {
+                addingNewPath = false;
+                newPathInput = "";
+            }
+
+            EditorGUILayout.EndHorizontal();
+        }
+
         private void DrawSearchBar()
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
@@ -198,7 +394,7 @@ namespace ProxyCore.Editor
 
             string allLabel = $"ALL ({allEvents.Count})";
             float allWidth = Mathf.Max(80f, buttonStyle.CalcSize(new GUIContent(allLabel)).x);
-            buttons.Add((allLabel, allWidth, () => selectedCategory = null, selectedCategory == null));
+            buttons.Add((allLabel, allWidth, () => { selectedCategory = null; showingNewOnly = false; }, selectedCategory == null && !showingNewOnly));
 
             foreach (var category in allCategories)
             {
@@ -207,7 +403,15 @@ namespace ProxyCore.Editor
                 string label = $"{dispName} ({count})";
                 float w = Mathf.Min(150f, Mathf.Max(60f, buttonStyle.CalcSize(new GUIContent(label)).x));
                 var cat = category;
-                buttons.Add((label, w, () => selectedCategory = cat, selectedCategory == category));
+                buttons.Add((label, w, () => { selectedCategory = cat; showingNewOnly = false; }, selectedCategory == category && !showingNewOnly));
+            }
+
+            // Prepend a virtual "New" filter button while there are unsaved newly created events
+            if (newlyCreatedEvents.Count > 0)
+            {
+                string newLabel = $"✦ New ({newlyCreatedEvents.Count})";
+                float newWidth = Mathf.Max(80f, buttonStyle.CalcSize(new GUIContent(newLabel)).x);
+                buttons.Insert(0, (newLabel, newWidth, () => { showingNewOnly = true; selectedCategory = null; }, showingNewOnly));
             }
 
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
@@ -262,7 +466,9 @@ namespace ProxyCore.Editor
 
         private void DrawEventTable()
         {
-            var filteredEvents = GetFilteredEvents();
+            // Materialize to a concrete list so that any GUI actions that modify
+            // allEvents or eventsToDelete mid-loop don't corrupt the iterator.
+            var filteredEvents = GetFilteredEvents().ToList();
 
             scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
 
@@ -281,6 +487,9 @@ namespace ProxyCore.Editor
             EditorGUILayout.BeginHorizontal();
 
             // Short Name (primary identifier) — uses DelayedTextField so changes commit on Enter/blur
+            // Assign a named control for newly created events so we can focus it programmatically
+            if (newlyCreatedEvents.Contains(evt))
+                GUI.SetNextControlName($"shortName_{evt.GetInstanceID()}");
             EditorGUI.BeginChangeCheck();
             string newShortName = EditorGUILayout.DelayedTextField(evt.shortName ?? "", GUILayout.Width(COLUMN_SHORT_NAME));
             if (EditorGUI.EndChangeCheck())
@@ -450,10 +659,26 @@ namespace ProxyCore.Editor
         {
             IEnumerable<EventMessage> filtered = allEvents;
 
-            // Filter by category
-            if (selectedCategory != null)
+            if (showingNewOnly)
             {
-                filtered = filtered.Where(e => e.categories != null && e.categories.Contains(selectedCategory));
+                // "New" virtual filter — only unsaved newly created events
+                filtered = filtered.Where(e => newlyCreatedEvents.Contains(e));
+            }
+            else
+            {
+                // Regular category filter
+                if (selectedCategory != null)
+                {
+                    filtered = filtered.Where(e => e.categories != null && e.categories.Contains(selectedCategory));
+                }
+
+                // Float newly created events to the top of any view
+                if (newlyCreatedEvents.Count > 0)
+                {
+                    var newOnes = filtered.Where(e => newlyCreatedEvents.Contains(e));
+                    var rest = filtered.Where(e => !newlyCreatedEvents.Contains(e));
+                    filtered = newOnes.Concat(rest);
+                }
             }
 
             // Filter by search
@@ -539,18 +764,34 @@ namespace ProxyCore.Editor
 
         private void ConfirmDelete(EventMessage evt)
         {
-            string message = $"Are you sure you want to delete event '{evt.GetDisplayName()}'?\n\nThis action will be applied when you click Save.";
-
-            if (EditorUtility.DisplayDialog("Confirm Deletion", message, "Delete", "Cancel"))
+            // Defer the dialog to after the current GUI pass to avoid GUILayout
+            // state corruption and collection-modified exceptions that occur when
+            // a modal dialog is shown mid-layout.
+            EditorApplication.delayCall += () =>
             {
-                if (!eventsToDelete.Contains(evt))
+                if (evt == null) return;
+                string message = $"Are you sure you want to delete event '{evt.GetDisplayName()}'?\n\nThis action will be applied when you click Save.";
+                if (EditorUtility.DisplayDialog("Confirm Deletion", message, "Delete", "Cancel"))
                 {
-                    eventsToDelete.Add(evt);
+                    // Release IMGUI keyboard/hot control BEFORE the list redraws.
+                    // Without this, Unity reassigns the deleted row's DelayedTextField
+                    // control ID to the next row, causing its pending value to be
+                    // committed into the next event's shortName (accidental rename).
+                    GUIUtility.hotControl = 0;
+                    GUIUtility.keyboardControl = 0;
+                    EditorGUIUtility.editingTextField = false;
+
+                    if (!eventsToDelete.Contains(evt))
+                        eventsToDelete.Add(evt);
+                    dirtyEvents.Remove(evt);
+                    // If this was a newly created event that never got saved, remove it
+                    // from the new-only tracking set and exit that filter if empty.
+                    newlyCreatedEvents.Remove(evt);
+                    if (newlyCreatedEvents.Count == 0 && showingNewOnly)
+                        showingNewOnly = false;
+                    Repaint();
                 }
-                // Remove from dirty if it was there
-                dirtyEvents.Remove(evt);
-                Repaint();
-            }
+            };
         }
 
         /// <summary>
@@ -599,11 +840,38 @@ namespace ProxyCore.Editor
             newEvent.muteDebugLog = false;
             newEvent.skipPayloadValidation = false;
 
+            // Suppress BEFORE CreateAsset: CreateAsset fires OnPostprocessAllAssets
+            // synchronously. If suppression is set after, codegen schedules before we
+            // can stop it → .cs files written → script compile → domain reload → all
+            // non-serialised window state (dirtyEvents, newlyCreatedEvents, showingNewOnly)
+            // is wiped → Save stays grey, New filter is empty.
+            EventMessageCodeGenerator.SuppressRegenerationForPath(assetPath);
+
             AssetDatabase.CreateAsset(newEvent, assetPath);
-            AssetDatabase.SaveAssets();
+
+            // Force the asset to be indexed before LoadAllData scans for it.
+            AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceSynchronousImport);
+
+            // Track as newly created. Do NOT save or regenerate yet — let the designer fill in details first.
+            newlyCreatedEvents.Add(newEvent);
+            MarkDirty(newEvent);
+
+            // Switch to the "New" filter and scroll to top so the event is immediately visible
+            showingNewOnly = true;
+            selectedCategory = null;
+            scrollPosition = Vector2.zero;
+
+            // Schedule focus on the short name field
+            pendingFocusEvent = newEvent;
+            pendingFocusFrames = 0;
 
             // Reload data to include new event
             LoadAllData();
+
+            // Safety net: if LoadAllData didn't pick up the asset (timing edge-case),
+            // insert it manually so the New filter is never empty.
+            if (!allEvents.Contains(newEvent))
+                allEvents.Insert(0, newEvent);
 
             // Select and ping the new event
             Selection.activeObject = newEvent;
@@ -616,7 +884,41 @@ namespace ProxyCore.Editor
         {
             try
             {
-                EditorUtility.DisplayProgressBar("Saving Events", "Saving modified events...", 0.2f);
+                // Lift regeneration suppression for all pending new events.
+                // Any path registered in CreateNewEvent must be released here so that
+                // the postprocessor can react normally going forward, and so that the
+                // explicit RegenerateAllEvents() call below sees the full asset set.
+                foreach (var evt in newlyCreatedEvents)
+                {
+                    if (evt != null)
+                    {
+                        string p = AssetDatabase.GetAssetPath(evt);
+                        if (!string.IsNullOrEmpty(p))
+                            EventMessageCodeGenerator.AllowRegenerationForPath(p);
+                    }
+                }
+
+                // ── Step 1: Delete queued events FIRST ──────────────────────────
+                // Deletions must precede renames. If a dirty event was accidentally
+                // given the same shortName as a to-be-deleted event (e.g. via an
+                // IMGUI focus-steal), the rename would collide with the still-existing
+                // asset and fail silently. Deleting first frees the name so the rename
+                // succeeds, and codegen finds only one asset per shortName.
+                EditorUtility.DisplayProgressBar("Saving Events", "Deleting removed events...", 0.15f);
+                foreach (var evt in eventsToDelete)
+                {
+                    if (evt != null)
+                    {
+                        string path = AssetDatabase.GetAssetPath(evt);
+                        if (!string.IsNullOrEmpty(path))
+                        {
+                            AssetDatabase.DeleteAsset(path);
+                        }
+                    }
+                }
+
+                // ── Step 2: Mark dirty and rename modified events ────────────────
+                EditorUtility.DisplayProgressBar("Saving Events", "Saving modified events...", 0.35f);
 
                 // Save modified events
                 foreach (var evt in dirtyEvents)
@@ -651,20 +953,7 @@ namespace ProxyCore.Editor
                     }
                 }
 
-                // Delete queued events
-                foreach (var evt in eventsToDelete)
-                {
-                    if (evt != null)
-                    {
-                        string path = AssetDatabase.GetAssetPath(evt);
-                        if (!string.IsNullOrEmpty(path))
-                        {
-                            AssetDatabase.DeleteAsset(path);
-                        }
-                    }
-                }
-
-                EditorUtility.DisplayProgressBar("Saving Events", "Committing changes to disk...", 0.4f);
+                EditorUtility.DisplayProgressBar("Saving Events", "Committing changes to disk...", 0.55f);
                 AssetDatabase.SaveAssets();
 
                 EditorUtility.DisplayProgressBar("Saving Events", "Refreshing registry...", 0.6f);
@@ -684,6 +973,8 @@ namespace ProxyCore.Editor
                 // Clear dirty state
                 dirtyEvents.Clear();
                 eventsToDelete.Clear();
+                newlyCreatedEvents.Clear();
+                showingNewOnly = false;
 
                 EditorUtility.DisplayProgressBar("Saving Events", "Reloading data...", 0.9f);
 

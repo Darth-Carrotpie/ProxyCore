@@ -16,6 +16,8 @@ MonoBehaviour:
   definitions:
   - {fileID: 11400000, guid: d6811070b7c2dbf4eb5dcbe029ecdc8b, type: 2}
   - {fileID: 11400000, guid: bc60fdad25aa02c489cf0626b5ef502e, type: 2}
+  - {fileID: 11400000, guid: 9a33d30b1d7352d4c94c504925265fb8, type: 2}
+  - {fileID: 11400000, guid: 0e5b5bf46600d2f4fb34c47a25944d6f, type: 2}
   autoRefresh: 1
   enableDebugging: 0
   showAttachedEvents: 0
