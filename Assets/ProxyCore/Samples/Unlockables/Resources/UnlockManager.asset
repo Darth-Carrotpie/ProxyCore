@@ -13,5 +13,5 @@ MonoBehaviour:
   m_Name: UnlockManager
   m_EditorClassIdentifier: ProxyCore::ProxyCore.UnlockManager
   _persistent: 0
-  _onUnlocked: {fileID: 0}
-  _onLocked: {fileID: 0}
+  _onUnlocked: {fileID: 11400000, guid: 0e5b5bf46600d2f4fb34c47a25944d6f, type: 2}
+  _onLocked: {fileID: 11400000, guid: 9a33d30b1d7352d4c94c504925265fb8, type: 2}

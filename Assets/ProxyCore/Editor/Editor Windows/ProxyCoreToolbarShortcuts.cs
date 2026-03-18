@@ -51,6 +51,25 @@ namespace ProxyCore.Editor
         }
     }
 
+    [EditorToolbarElement(ID)]
+    sealed class UnlockDebugWindowToolbarButton : EditorToolbarButton
+    {
+        public const string ID = "ProxyCore/UnlockDebugWindowButton";
+
+        public UnlockDebugWindowToolbarButton()
+        {
+            tooltip = "Unlock Debug Window";
+            clicked += UnlockDebugWindow.ShowWindow;
+            RegisterCallback<AttachToPanelEvent>(OnAttach);
+        }
+
+        void OnAttach(AttachToPanelEvent _)
+        {
+            var content = EditorGUIUtility.IconContent("d_P4_LockedLocal");
+            if (content != null) icon = content.image as Texture2D;
+        }
+    }
+
     // ── Register built-in buttons ─────────────────────────────────────────────────
     // Runs at domain reload to seed the registry with ProxyCore's own buttons
     // before any downstream [InitializeOnLoad] classes register theirs.
@@ -62,6 +81,7 @@ namespace ProxyCore.Editor
         {
             ProxyCoreToolbarRegistry.RegisterButton(EventManagerToolbarButton.ID);
             ProxyCoreToolbarRegistry.RegisterButton(EventDebugMonitorToolbarButton.ID);
+            ProxyCoreToolbarRegistry.RegisterButton(UnlockDebugWindowToolbarButton.ID);
         }
     }
 

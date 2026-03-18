@@ -28,7 +28,11 @@ public class CharacterDefinition : BaseDefinition, IUnlockable
     [Tooltip("When true, unlocked state survives across game sessions. Characters are persistent by default.")]
     [SerializeField] private bool _savesAcrossSessions = true;
 
+    [Tooltip("When true, this character is available from the start without an explicit Unlock() call.")]
+    [SerializeField] private bool _isUnlockedByDefault = false;
+
     string IUnlockable.UnlockKey => $"{GetType().Name}:{ID}";
     bool IUnlockable.SavesAcrossSessions => _savesAcrossSessions;
     UnlockBehavior IUnlockable.LockedBehavior => _lockedBehavior;
+    bool IUnlockable.IsUnlockedByDefault => _isUnlockedByDefault;
 }

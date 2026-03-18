@@ -15,12 +15,14 @@ namespace ProxyCore
         public string UnlockKey { get; }
         public bool SavesAcrossSessions { get; }
         public UnlockBehavior LockedBehavior { get; }
+        public bool IsUnlockedByDefault { get; }
 
-        public StandaloneUnlockable(string key, bool savesAcrossSessions, UnlockBehavior lockedBehavior)
+        public StandaloneUnlockable(string key, bool savesAcrossSessions, UnlockBehavior lockedBehavior, bool isUnlockedByDefault = false)
         {
             UnlockKey = key;
             SavesAcrossSessions = savesAcrossSessions;
             LockedBehavior = lockedBehavior;
+            IsUnlockedByDefault = isUnlockedByDefault;
         }
     }
 }
