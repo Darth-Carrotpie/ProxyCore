@@ -9,8 +9,6 @@ using UnityEngine;
 /// </summary>
 public class CharacterUnlockController : MonoBehaviour
 {
-    [SerializeField] private CharacterRegistry _registry;
-
     // ------------------------------------------------------------------ //
     //  State Mutations                                                     //
     // ------------------------------------------------------------------ //
@@ -39,7 +37,7 @@ public class CharacterUnlockController : MonoBehaviour
     public IReadOnlyList<CharacterDefinition> GetVisibleCharacters()
     {
         var result = new List<CharacterDefinition>();
-        foreach (var character in _registry.GetAllDefinitions())
+        foreach (var character in CharacterDefinition.Instance.GetAllDefinitions())
         {
             if (UnlockManager.Instance.IsUnlocked(character))
                 result.Add(character);
@@ -55,7 +53,7 @@ public class CharacterUnlockController : MonoBehaviour
     public IReadOnlyList<CharacterDefinition> GetUnlockedCharacters()
     {
         var result = new List<CharacterDefinition>();
-        foreach (var character in _registry.GetAllDefinitions())
+        foreach (var character in CharacterDefinition.Instance.GetAllDefinitions())
         {
             if (UnlockManager.Instance.IsUnlocked(character))
                 result.Add(character);

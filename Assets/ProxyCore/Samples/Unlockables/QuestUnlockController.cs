@@ -9,8 +9,6 @@ using UnityEngine;
 /// </summary>
 public class QuestUnlockController : MonoBehaviour
 {
-    [SerializeField] private QuestRegistry _registry;
-
     // ------------------------------------------------------------------ //
     //  State Mutations                                                     //
     // ------------------------------------------------------------------ //
@@ -46,7 +44,7 @@ public class QuestUnlockController : MonoBehaviour
     public IReadOnlyList<QuestDefinition> GetVisibleQuests()
     {
         var result = new List<QuestDefinition>();
-        foreach (var quest in _registry.GetAllDefinitions())
+        foreach (var quest in QuestDefinition.Instance.GetAllDefinitions())
         {
             if (UnlockManager.Instance.IsUnlocked(quest))
                 result.Add(quest);
@@ -62,7 +60,7 @@ public class QuestUnlockController : MonoBehaviour
     public IReadOnlyList<QuestDefinition> GetUnlockedQuests()
     {
         var result = new List<QuestDefinition>();
-        foreach (var quest in _registry.GetAllDefinitions())
+        foreach (var quest in QuestDefinition.Instance.GetAllDefinitions())
         {
             if (UnlockManager.Instance.IsUnlocked(quest))
                 result.Add(quest);
