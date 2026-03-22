@@ -15,5 +15,8 @@ MonoBehaviour:
   _persistent: 1
   definitions:
   - {fileID: 11400000, guid: 50848f73b05a0454c8b007c13cdc83b1, type: 2}
+  - {fileID: 11400000, guid: 63b1449ea8faea94c9df7e051e06fc01, type: 2}
+  - {fileID: 11400000, guid: 0002ffc0c7c3cb34d81a0373564b6038, type: 2}
+  - {fileID: 11400000, guid: bb4b0b3d7ecc1004b930e581da78a64a, type: 2}
   - {fileID: 11400000, guid: ec5ad7ebf8a02914a972d8f67d75827b, type: 2}
   autoRefresh: 1

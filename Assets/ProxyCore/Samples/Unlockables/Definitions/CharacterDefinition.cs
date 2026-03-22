@@ -3,8 +3,7 @@ using ProxyCore;
 using System.Collections.Generic;
 
 [CreateAssetMenu(fileName = "CharacterDefinition", menuName = "Definitions/Character Definition", order = 2)]
-public class CharacterDefinition : BaseDefinition, IUnlockable
-{
+public class CharacterDefinition : BaseDefinition, IUnlockable, IHasPrerequisites {
     public string fullName;
     public string shortName;
 
@@ -31,8 +30,16 @@ public class CharacterDefinition : BaseDefinition, IUnlockable
     [Tooltip("When true, this character is available from the start without an explicit Unlock() call.")]
     [SerializeField] private bool _isUnlockedByDefault = false;
 
+    [Header("Prerequisites")]
+    [Tooltip("Conditions that must be satisfied for this character to auto-unlock via an UnlockAutoTrigger. Evaluated with the mode below.")]
+    [SerializeField] private List<UnlockCondition> _prerequisites = new List<UnlockCondition>();
+    [Tooltip("All: every condition must pass. Any: at least one condition must pass.")]
+    [SerializeField] private ConditionMode _prerequisiteMode = ConditionMode.All;
+
     string IUnlockable.UnlockKey => $"{GetType().Name}:{ID}";
     bool IUnlockable.SavesAcrossSessions => _savesAcrossSessions;
     UnlockBehavior IUnlockable.LockedBehavior => _lockedBehavior;
     bool IUnlockable.IsUnlockedByDefault => _isUnlockedByDefault;
+    IReadOnlyList<UnlockCondition> IHasPrerequisites.Prerequisites => _prerequisites.AsReadOnly();
+    ConditionMode IHasPrerequisites.PrerequisiteMode => _prerequisiteMode;
 }

@@ -10,18 +10,14 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 60a7cabc249a26b459f1eda048f03046, type: 3}
-  m_Name: CharacterDefinition Unlockable
+  m_Name: CharacterDefinition A
   m_EditorClassIdentifier: Assembly-CSharp::CharacterDefinition
-  <ID>k__BackingField: -328448313
-  fullName: Jerry
-  shortName: Jerry
-  initialGreeting: Hi, I'm a mouse!
-  quests:
-  - {fileID: 11400000, guid: f6cb02f37fa03d14794769fa079c78bc, type: 2}
-  - {fileID: 11400000, guid: 11bd236669b2e1748b6da3c309fdb494, type: 2}
-  backStories:
-  - storyBeat: Jerry is being chased by Tom daily.
-  - storyBeat: Jerry recently made friends with Bulldog.
+  <ID>k__BackingField: -700895864
+  fullName: A
+  shortName: A
+  initialGreeting: 
+  quests: []
+  backStories: []
   _lockedBehavior: 0
   _savesAcrossSessions: 0
   _isUnlockedByDefault: 0

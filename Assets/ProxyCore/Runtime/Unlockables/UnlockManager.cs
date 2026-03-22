@@ -2,8 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 
-namespace ProxyCore
-{
+namespace ProxyCore {
     /// <summary>
     /// Global manager for all unlock state in the game.
     ///
@@ -18,8 +17,7 @@ namespace ProxyCore
     /// anywhere discoverable by Resources.Load or AssetDatabase (see SingletonSO).
     /// </summary>
     [CreateAssetMenu(fileName = "UnlockManager", menuName = "Managers/Unlock Manager")]
-    public class UnlockManager : SingletonSO<UnlockManager>
-    {
+    public class UnlockManager : SingletonSO<UnlockManager> {
         #region Fields
 
         [Header("Events")]
@@ -34,6 +32,12 @@ namespace ProxyCore
         // Keys that were explicitly locked via Lock() — overrides IsUnlockedByDefault.
         private HashSet<string> _lockedOverrides = new HashSet<string>();
 
+        [Header("Auto-unlock Triggers")]
+        [Tooltip("Triggers watched each time any item is unlocked. Target unlocks automatically when all prerequisites pass.")]
+        [SerializeField] private List<UnlockAutoTrigger> _autoTriggers = new List<UnlockAutoTrigger>();
+
+        private bool _evaluatingTriggers;
+
         private static string SavePath =>
             Path.Combine(Application.persistentDataPath, "unlocks.json");
 
@@ -41,16 +45,15 @@ namespace ProxyCore
 
         #region Lifecycle
 
-        protected override void OnAwake()
-        {
+        protected override void OnAwake() {
             base.OnAwake();
             // Session unlocks must clear on scene reload; persistent disk data is always re-loaded.
             _persistent = false;
             Load();
+            EvaluateAutoTriggers();
         }
 
-        protected override void OnSceneReload()
-        {
+        protected override void OnSceneReload() {
             base.OnSceneReload();
             _sessionUnlocked.Clear();
             _lockedOverrides.Clear();
@@ -91,35 +94,31 @@ namespace ProxyCore
 
         #region Public API — Key overloads
 
-        public void UnlockByKey(string key, bool savesAcrossSessions)
-        {
-            if (savesAcrossSessions)
-            {
-                if (_savedUnlocked.Add(key))
-                {
+        public void UnlockByKey(string key, bool savesAcrossSessions) {
+            if (savesAcrossSessions) {
+                if (_savedUnlocked.Add(key)) {
                     Save();
                     BroadcastUnlocked(key);
+                    EvaluateAutoTriggers();
                 }
             }
-            else
-            {
-                if (_sessionUnlocked.Add(key))
+            else {
+                if (_sessionUnlocked.Add(key)) {
                     BroadcastUnlocked(key);
+                    EvaluateAutoTriggers();
+                }
             }
         }
 
-        public void LockByKey(string key, bool savesAcrossSessions)
-        {
+        public void LockByKey(string key, bool savesAcrossSessions) {
             _lockedOverrides.Add(key);
 
             bool changed;
-            if (savesAcrossSessions)
-            {
+            if (savesAcrossSessions) {
                 changed = _savedUnlocked.Remove(key);
                 if (changed) Save();
             }
-            else
-            {
+            else {
                 changed = _sessionUnlocked.Remove(key);
             }
 
@@ -140,48 +139,39 @@ namespace ProxyCore
         /// <summary>
         /// Unlocks all items in the collection. Saved items are written to disk in a single pass.
         /// </summary>
-        public void UnlockAll(IEnumerable<IUnlockable> items)
-        {
+        public void UnlockAll(IEnumerable<IUnlockable> items) {
             bool anySaved = false;
-            foreach (var item in items)
-            {
+            foreach (var item in items) {
                 _lockedOverrides.Remove(item.UnlockKey);
-                if (item.SavesAcrossSessions)
-                {
-                    if (_savedUnlocked.Add(item.UnlockKey))
-                    {
+                if (item.SavesAcrossSessions) {
+                    if (_savedUnlocked.Add(item.UnlockKey)) {
                         anySaved = true;
                         BroadcastUnlocked(item.UnlockKey);
                     }
                 }
-                else
-                {
+                else {
                     if (_sessionUnlocked.Add(item.UnlockKey))
                         BroadcastUnlocked(item.UnlockKey);
                 }
             }
             if (anySaved) Save();
+            EvaluateAutoTriggers();
         }
 
         /// <summary>
         /// Locks all items in the collection. Saved items are written to disk in a single pass.
         /// </summary>
-        public void LockAll(IEnumerable<IUnlockable> items)
-        {
+        public void LockAll(IEnumerable<IUnlockable> items) {
             bool anySaved = false;
-            foreach (var item in items)
-            {
+            foreach (var item in items) {
                 _lockedOverrides.Add(item.UnlockKey);
-                if (item.SavesAcrossSessions)
-                {
-                    if (_savedUnlocked.Remove(item.UnlockKey))
-                    {
+                if (item.SavesAcrossSessions) {
+                    if (_savedUnlocked.Remove(item.UnlockKey)) {
                         anySaved = true;
                         BroadcastLocked(item.UnlockKey);
                     }
                 }
-                else
-                {
+                else {
                     if (_sessionUnlocked.Remove(item.UnlockKey))
                         BroadcastLocked(item.UnlockKey);
                 }
@@ -192,48 +182,39 @@ namespace ProxyCore
         /// <summary>
         /// Key-based bulk unlock. Each tuple supplies the key and whether it should be saved across sessions.
         /// </summary>
-        public void UnlockAllByKeys(IEnumerable<(string key, bool savesAcrossSessions)> entries)
-        {
+        public void UnlockAllByKeys(IEnumerable<(string key, bool savesAcrossSessions)> entries) {
             bool anySaved = false;
-            foreach (var (key, saves) in entries)
-            {
+            foreach (var (key, saves) in entries) {
                 _lockedOverrides.Remove(key);
-                if (saves)
-                {
-                    if (_savedUnlocked.Add(key))
-                    {
+                if (saves) {
+                    if (_savedUnlocked.Add(key)) {
                         anySaved = true;
                         BroadcastUnlocked(key);
                     }
                 }
-                else
-                {
+                else {
                     if (_sessionUnlocked.Add(key))
                         BroadcastUnlocked(key);
                 }
             }
             if (anySaved) Save();
+            EvaluateAutoTriggers();
         }
 
         /// <summary>
         /// Key-based bulk lock. Each tuple supplies the key and whether it is stored across sessions.
         /// </summary>
-        public void LockAllByKeys(IEnumerable<(string key, bool savesAcrossSessions)> entries)
-        {
+        public void LockAllByKeys(IEnumerable<(string key, bool savesAcrossSessions)> entries) {
             bool anySaved = false;
-            foreach (var (key, saves) in entries)
-            {
+            foreach (var (key, saves) in entries) {
                 _lockedOverrides.Add(key);
-                if (saves)
-                {
-                    if (_savedUnlocked.Remove(key))
-                    {
+                if (saves) {
+                    if (_savedUnlocked.Remove(key)) {
                         anySaved = true;
                         BroadcastLocked(key);
                     }
                 }
-                else
-                {
+                else {
                     if (_sessionUnlocked.Remove(key))
                         BroadcastLocked(key);
                 }
@@ -249,8 +230,7 @@ namespace ProxyCore
         /// Clears all saved (cross-session) unlock state and deletes the save file from disk.
         /// Session unlocks and locked overrides are unaffected.
         /// </summary>
-        public void ResetSavedUnlocks()
-        {
+        public void ResetSavedUnlocks() {
             _savedUnlocked.Clear();
             if (File.Exists(SavePath))
                 File.Delete(SavePath);
@@ -259,8 +239,7 @@ namespace ProxyCore
         /// <summary>
         /// Clears all session-only unlock state. Saved (cross-session) state is unaffected.
         /// </summary>
-        public void ResetSessionUnlocks()
-        {
+        public void ResetSessionUnlocks() {
             _sessionUnlocked.Clear();
             _lockedOverrides.Clear();
         }
@@ -269,15 +248,13 @@ namespace ProxyCore
 
         #region Persistence
 
-        private void Save()
-        {
+        private void Save() {
             var data = new UnlockSaveData();
             data.savedUnlockedKeys.AddRange(_savedUnlocked);
             File.WriteAllText(SavePath, JsonUtility.ToJson(data, prettyPrint: true));
         }
 
-        private void Load()
-        {
+        private void Load() {
             _savedUnlocked.Clear();
             if (!File.Exists(SavePath))
                 return;
@@ -292,18 +269,51 @@ namespace ProxyCore
 
         #endregion
 
+        #region Auto-unlock
+
+        /// <summary>
+        /// Evaluates all registered auto-unlock triggers against current unlock state.
+        /// Called automatically after every Unlock() call and on startup.
+        ///
+        /// Re-entrant-safe: nested calls (caused by chains) return immediately;
+        /// the outer do-while loop keeps iterating until no new unlocks occur in a full pass,
+        /// so arbitrarily deep chains resolve in O(depth) outer iterations.
+        /// </summary>
+        public void EvaluateAutoTriggers() {
+            if (_evaluatingTriggers || _autoTriggers == null || _autoTriggers.Count == 0) return;
+            _evaluatingTriggers = true;
+            try {
+                bool anyNew;
+                do {
+                    anyNew = false;
+                    foreach (var trigger in _autoTriggers) {
+                        if (trigger == null) continue;
+                        var target = trigger.Target;
+                        if (target == null || IsUnlocked(target)) continue;
+                        if (trigger.ArePrerequisitesMet()) {
+                            Unlock(target);
+                            anyNew = true;
+                        }
+                    }
+                } while (anyNew);
+            }
+            finally {
+                _evaluatingTriggers = false;
+            }
+        }
+
+        #endregion
+
         #region Broadcasting
 
-        private void BroadcastUnlocked(string key)
-        {
+        private void BroadcastUnlocked(string key) {
             if (_onUnlocked == null) return;
             new EventTriggerBuilder(_onUnlocked)
                 .With(new StringPayload(key))
                 .Send();
         }
 
-        private void BroadcastLocked(string key)
-        {
+        private void BroadcastLocked(string key) {
             if (_onLocked == null) return;
             new EventTriggerBuilder(_onLocked)
                 .With(new StringPayload(key))

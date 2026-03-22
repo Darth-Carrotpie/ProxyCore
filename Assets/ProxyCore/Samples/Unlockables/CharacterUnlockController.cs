@@ -37,7 +37,7 @@ public class CharacterUnlockController : MonoBehaviour
     public IReadOnlyList<CharacterDefinition> GetVisibleCharacters()
     {
         var result = new List<CharacterDefinition>();
-        foreach (var character in CharacterDefinition.Instance.GetAllDefinitions())
+        foreach (var character in CharacterRegistry.Instance.GetAllDefinitions())
         {
             if (UnlockManager.Instance.IsUnlocked(character))
                 result.Add(character);
@@ -53,7 +53,7 @@ public class CharacterUnlockController : MonoBehaviour
     public IReadOnlyList<CharacterDefinition> GetUnlockedCharacters()
     {
         var result = new List<CharacterDefinition>();
-        foreach (var character in CharacterDefinition.Instance.GetAllDefinitions())
+        foreach (var character in CharacterRegistry.Instance.GetAllDefinitions())
         {
             if (UnlockManager.Instance.IsUnlocked(character))
                 result.Add(character);

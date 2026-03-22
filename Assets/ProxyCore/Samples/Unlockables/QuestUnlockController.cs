@@ -44,7 +44,7 @@ public class QuestUnlockController : MonoBehaviour
     public IReadOnlyList<QuestDefinition> GetVisibleQuests()
     {
         var result = new List<QuestDefinition>();
-        foreach (var quest in QuestDefinition.Instance.GetAllDefinitions())
+        foreach (var quest in QuestRegistry.Instance.GetAllDefinitions())
         {
             if (UnlockManager.Instance.IsUnlocked(quest))
                 result.Add(quest);
@@ -60,7 +60,7 @@ public class QuestUnlockController : MonoBehaviour
     public IReadOnlyList<QuestDefinition> GetUnlockedQuests()
     {
         var result = new List<QuestDefinition>();
-        foreach (var quest in QuestDefinition.Instance.GetAllDefinitions())
+        foreach (var quest in QuestRegistry.Instance.GetAllDefinitions())
         {
             if (UnlockManager.Instance.IsUnlocked(quest))
                 result.Add(quest);
