@@ -32,11 +32,19 @@ namespace ProxyCore {
         // Keys that were explicitly locked via Lock() — overrides IsUnlockedByDefault.
         private HashSet<string> _lockedOverrides = new HashSet<string>();
 
-        [Header("Auto-unlock Triggers")]
-        [Tooltip("Triggers watched each time any item is unlocked. Target unlocks automatically when all prerequisites pass.")]
-        [SerializeField] private List<UnlockAutoTrigger> _autoTriggers = new List<UnlockAutoTrigger>();
+        [Header("Auto-unlock Registries")]
+        [Tooltip("Registries scanned each time any item is unlocked. Any definition implementing IHasPrerequisites with AutoUnlock=true will unlock automatically when its prerequisites pass. Use the Refresh button or ProxyCore > Unlock Actions > Refresh Unlock Registries to populate.")]
+        [SerializeField] private List<RegistryEntry> _registries = new List<RegistryEntry>();
 
         private bool _evaluatingTriggers;
+
+        [System.Serializable]
+        private class RegistryEntry {
+            [Tooltip("A registry asset (any BaseRegistry<T>). Must implement IUnlockableCatalog.")]
+            public ScriptableObject Registry;
+            [Tooltip("When false, this registry is skipped during auto-unlock evaluation.")]
+            public bool Enabled = true;
+        }
 
         private static string SavePath =>
             Path.Combine(Application.persistentDataPath, "unlocks.json");
@@ -280,25 +288,48 @@ namespace ProxyCore {
         /// so arbitrarily deep chains resolve in O(depth) outer iterations.
         /// </summary>
         public void EvaluateAutoTriggers() {
-            if (_evaluatingTriggers || _autoTriggers == null || _autoTriggers.Count == 0) return;
+            if (_evaluatingTriggers || _registries == null || _registries.Count == 0) return;
             _evaluatingTriggers = true;
             try {
                 bool anyNew;
                 do {
                     anyNew = false;
-                    foreach (var trigger in _autoTriggers) {
-                        if (trigger == null) continue;
-                        var target = trigger.Target;
-                        if (target == null || IsUnlocked(target)) continue;
-                        if (trigger.ArePrerequisitesMet()) {
-                            Unlock(target);
-                            anyNew = true;
+                    foreach (var entry in _registries) {
+                        if (entry == null || !entry.Enabled || entry.Registry == null) continue;
+                        var catalog = entry.Registry as IUnlockableCatalog;
+                        if (catalog == null) continue;
+
+                        foreach (var def in catalog.GetCatalogDefinitions()) {
+                            if (!(def is IUnlockable unlockable)) continue;
+                            if (!(def is IHasPrerequisites prereqs)) continue;
+                            if (!prereqs.AutoUnlock || IsUnlocked(unlockable)) continue;
+
+                            if (ArePrerequisitesMet(prereqs)) {
+                                Unlock(unlockable);
+                                anyNew = true;
+                            }
                         }
                     }
                 } while (anyNew);
             }
             finally {
                 _evaluatingTriggers = false;
+            }
+        }
+
+        private static bool ArePrerequisitesMet(IHasPrerequisites prereqs) {
+            var conditions = prereqs.Prerequisites;
+            if (conditions == null || conditions.Count == 0) return true;
+
+            if (prereqs.PrerequisiteMode == ConditionMode.All) {
+                foreach (var c in conditions)
+                    if (c == null || !c.Evaluate()) return false;
+                return true;
+            }
+            else {
+                foreach (var c in conditions)
+                    if (c != null && c.Evaluate()) return true;
+                return false;
             }
         }
 

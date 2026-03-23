@@ -31,10 +31,12 @@ public class CharacterDefinition : BaseDefinition, IUnlockable, IHasPrerequisite
     [SerializeField] private bool _isUnlockedByDefault = false;
 
     [Header("Prerequisites")]
-    [Tooltip("Conditions that must be satisfied for this character to auto-unlock via an UnlockAutoTrigger. Evaluated with the mode below.")]
+    [Tooltip("Conditions that must be satisfied for this character to auto-unlock. Evaluated with the mode below.")]
     [SerializeField] private List<UnlockCondition> _prerequisites = new List<UnlockCondition>();
     [Tooltip("All: every condition must pass. Any: at least one condition must pass.")]
     [SerializeField] private ConditionMode _prerequisiteMode = ConditionMode.All;
+    [Tooltip("When true, UnlockManager will automatically unlock this character when all prerequisites are met.")]
+    [SerializeField] private bool _autoUnlock = true;
 
     string IUnlockable.UnlockKey => $"{GetType().Name}:{ID}";
     bool IUnlockable.SavesAcrossSessions => _savesAcrossSessions;
@@ -42,4 +44,5 @@ public class CharacterDefinition : BaseDefinition, IUnlockable, IHasPrerequisite
     bool IUnlockable.IsUnlockedByDefault => _isUnlockedByDefault;
     IReadOnlyList<UnlockCondition> IHasPrerequisites.Prerequisites => _prerequisites.AsReadOnly();
     ConditionMode IHasPrerequisites.PrerequisiteMode => _prerequisiteMode;
+    bool IHasPrerequisites.AutoUnlock => _autoUnlock;
 }

@@ -17,5 +17,12 @@ namespace ProxyCore {
         /// Whether ALL conditions must pass (AND) or ANY single condition is enough (OR).
         /// </summary>
         ConditionMode PrerequisiteMode { get; }
+
+        /// <summary>
+        /// When true, the UnlockManager will automatically unlock this item when all
+        /// prerequisites are met. Set to false to opt out of automatic unlocking and
+        /// require an explicit Unlock() call instead.
+        /// </summary>
+        bool AutoUnlock { get; }
     }
 }

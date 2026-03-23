@@ -10,6 +10,6 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 8b120fccb4683634b8f79629b06ecbef, type: 3}
-  m_Name: DefinitionIsUnlocked
+  m_Name: DefinitionIsUnlocked Condition
   m_EditorClassIdentifier: ProxyCore::ProxyCore.DefinitionUnlockedCondition
   _target: {fileID: 11400000, guid: 63b1449ea8faea94c9df7e051e06fc01, type: 2}

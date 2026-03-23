@@ -37,5 +37,15 @@ namespace ProxyCore.Editor {
 
         [MenuItem("ProxyCore/Unlockable Actions/Reset Session Unlocks", validate = true)]
         static bool ValidateResetSession() => Application.isPlaying;
+
+        [MenuItem("ProxyCore/Unlockable Actions/Refresh Unlock Registries")]
+        public static void RefreshUnlockRegistries() {
+            var manager = UnlockManager.Instance;
+            if (manager == null) {
+                Debug.LogWarning("ProxyCore: No UnlockManager asset found. Create one via Managers/Unlock Manager.");
+                return;
+            }
+            UnlockManagerEditor.RefreshRegistries(manager);
+        }
     }
 }

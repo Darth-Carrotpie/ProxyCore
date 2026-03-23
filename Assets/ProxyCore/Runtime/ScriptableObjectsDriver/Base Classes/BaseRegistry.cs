@@ -2,62 +2,58 @@ using UnityEngine;
 using System.Collections.Generic;
 using System;
 
-namespace ProxyCore
-{
-    public abstract class BaseRegistry<T> : SingletonSO<BaseRegistry<T>> where T : BaseDefinition
-    {
+namespace ProxyCore {
+    public abstract class BaseRegistry<T> : SingletonSO<BaseRegistry<T>>, IUnlockableCatalog where T : BaseDefinition {
         [Tooltip("List of all definitions")]
         public List<T> definitions = new List<T>();
 
         protected Dictionary<int, T> _lookup;
         protected Dictionary<Type, T> _typeLookup;
 
-        protected override void OnEnable()
-        {
+        protected override void OnEnable() {
             base.OnEnable();
             InitializeLookup();
         }
 
-        public virtual void InitializeLookup()
-        {
+        public virtual void InitializeLookup() {
             _lookup = new Dictionary<int, T>();
             _typeLookup = new Dictionary<Type, T>();
 
-            foreach (var def in definitions)
-            {
-                if (def != null && def.IsValidID())
-                {
+            foreach (var def in definitions) {
+                if (def != null && def.IsValidID()) {
                     _lookup[def.ID] = def;
                 }
 
-                if (def != null)
-                {
+                if (def != null) {
                     var componentType = def.GetComponentType();
-                    if (componentType != null)
-                    {
+                    if (componentType != null) {
                         _typeLookup[componentType] = def;
                     }
                 }
             }
         }
 
-        public virtual IReadOnlyList<T> GetAllDefinitions()
-        {
+        public virtual IReadOnlyList<T> GetAllDefinitions() {
             if (_lookup == null)
                 InitializeLookup();
             return definitions.AsReadOnly();
         }
 
-        public virtual T GetDefinition(int id)
-        {
+        /// <inheritdoc/>
+        public IReadOnlyList<BaseDefinition> GetCatalogDefinitions() {
+            if (_lookup == null)
+                InitializeLookup();
+            return definitions.ConvertAll(d => (BaseDefinition)d).AsReadOnly();
+        }
+
+        public virtual T GetDefinition(int id) {
             if (_lookup == null)
                 InitializeLookup();
             _lookup.TryGetValue(id, out var def);
             return def;
         }
 
-        public virtual T GetDefinition(Type componentType)
-        {
+        public virtual T GetDefinition(Type componentType) {
             if (_typeLookup == null)
                 InitializeLookup();
 
@@ -69,8 +65,7 @@ namespace ProxyCore
         /// Called when scene is reloaded and _persistent is false.
         /// Rebuilds lookup dictionaries from definitions to ensure consistency.
         /// </summary>
-        protected override void OnSceneReload()
-        {
+        protected override void OnSceneReload() {
             base.OnSceneReload();
 
             // Rebuild lookups from definitions (fast operation, ensures consistency)
