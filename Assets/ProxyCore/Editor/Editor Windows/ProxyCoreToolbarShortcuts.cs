@@ -70,6 +70,33 @@ namespace ProxyCore.Editor
         }
     }
 
+    [EditorToolbarElement(ID)]
+    sealed class UnlockGraphToolbarButton : EditorToolbarButton
+    {
+        public const string ID = "ProxyCore/UnlockGraphButton";
+
+        public UnlockGraphToolbarButton()
+        {
+            tooltip = "Unlock Dependency Graph";
+            // Callback set in OnAttach to defer until the Graph assembly is loaded
+            RegisterCallback<AttachToPanelEvent>(OnAttach);
+        }
+
+        void OnAttach(AttachToPanelEvent _)
+        {
+            var content = EditorGUIUtility.IconContent("d_SceneViewFx");
+            if (content != null) icon = content.image as Texture2D;
+
+            clicked -= OnClicked;
+            clicked += OnClicked;
+        }
+
+        static void OnClicked()
+        {
+            EditorApplication.ExecuteMenuItem("ProxyCore/Unlock Dependency Graph");
+        }
+    }
+
     // ── Register built-in buttons ─────────────────────────────────────────────────
     // Runs at domain reload to seed the registry with ProxyCore's own buttons
     // before any downstream [InitializeOnLoad] classes register theirs.
@@ -82,6 +109,7 @@ namespace ProxyCore.Editor
             ProxyCoreToolbarRegistry.RegisterButton(EventManagerToolbarButton.ID);
             ProxyCoreToolbarRegistry.RegisterButton(EventDebugMonitorToolbarButton.ID);
             ProxyCoreToolbarRegistry.RegisterButton(UnlockDebugWindowToolbarButton.ID);
+            ProxyCoreToolbarRegistry.RegisterButton(UnlockGraphToolbarButton.ID);
         }
     }
 

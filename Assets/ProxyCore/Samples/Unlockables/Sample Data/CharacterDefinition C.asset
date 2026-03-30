@@ -21,7 +21,6 @@ MonoBehaviour:
   _lockedBehavior: 0
   _savesAcrossSessions: 0
   _isUnlockedByDefault: 0
-  _prerequisites:
-  - {fileID: 11400000, guid: d28f5299f29847143a8fe3daa731dd2c, type: 2}
+  _prerequisites: []
   _prerequisiteMode: 0
   _autoUnlock: 1

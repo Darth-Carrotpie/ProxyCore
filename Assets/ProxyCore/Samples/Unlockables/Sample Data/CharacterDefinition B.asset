@@ -21,6 +21,7 @@ MonoBehaviour:
   _lockedBehavior: 0
   _savesAcrossSessions: 0
   _isUnlockedByDefault: 0
-  _prerequisites: []
+  _prerequisites:
+  - {fileID: 0}
   _prerequisiteMode: 0
   _autoUnlock: 1
