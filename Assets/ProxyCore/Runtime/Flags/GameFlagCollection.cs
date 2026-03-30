@@ -63,8 +63,8 @@ namespace ProxyCore {
             if (_onFlagChanged != null)
                 new EventTriggerBuilder(_onFlagChanged).With(new StringPayload(flagName)).Send();
 
-            if (_autoEvaluateOnSet && UnlockManager.Instance != null)
-                UnlockManager.Instance.EvaluateAutoTriggers();
+            if (_autoEvaluateOnSet)
+                UnlockManager.EvaluateAutoTriggers();
         }
 
         /// <summary>Returns the current value of a flag, or false if never set.</summary>

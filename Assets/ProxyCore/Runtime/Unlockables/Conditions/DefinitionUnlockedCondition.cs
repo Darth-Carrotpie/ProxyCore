@@ -8,7 +8,7 @@ namespace ProxyCore {
     /// e.g. "Character B unlocks only after Character A is unlocked."
     ///
     /// Usage:
-    ///   1. Create asset: ProxyCore/Unlockables/Conditions/Definition Is Unlocked
+    ///   1. Create asset: Unlockables/Definition Is Unlocked (Condition)
     ///   2. Assign the target definition in the inspector
     ///   3. Add to a definition's Prerequisites list
     /// </summary>
@@ -27,7 +27,7 @@ namespace ProxyCore {
                 return false;
             }
 
-            return UnlockManager.Instance.IsUnlocked(unlockable);
+            return UnlockManager.IsUnlocked(unlockable);
         }
     }
 }

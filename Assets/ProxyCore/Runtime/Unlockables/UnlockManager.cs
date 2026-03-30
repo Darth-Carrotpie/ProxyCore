@@ -72,73 +72,80 @@ namespace ProxyCore {
         #region Debug — Read-only state (used by UnlockDebugWindow)
 
         /// <summary>Keys currently unlocked and persisted to disk.</summary>
-        public IReadOnlyCollection<string> SavedUnlockedKeys => _savedUnlocked;
+        public static IReadOnlyCollection<string> SavedUnlockedKeys => Instance?._savedUnlocked;
 
         /// <summary>Keys unlocked this session only (not written to disk).</summary>
-        public IReadOnlyCollection<string> SessionUnlockedKeys => _sessionUnlocked;
+        public static IReadOnlyCollection<string> SessionUnlockedKeys => Instance?._sessionUnlocked;
 
         #endregion
 
         #region Public API — IUnlockable overloads
 
-        public void Unlock(IUnlockable item) =>
+        public static void Unlock(IUnlockable item) =>
             UnlockByKey(item.UnlockKey, item.SavesAcrossSessions);
 
-        public void Lock(IUnlockable item) =>
+        public static void Lock(IUnlockable item) =>
             LockByKey(item.UnlockKey, item.SavesAcrossSessions);
 
         /// <summary>
         /// Returns true when the item is explicitly unlocked OR unlocked by default.
         /// An explicit Lock() call takes precedence and will return false even if IsUnlockedByDefault is true.
         /// </summary>
-        public bool IsUnlocked(IUnlockable item) =>
-            !_lockedOverrides.Contains(item.UnlockKey) &&
-            (IsUnlockedByKey(item.UnlockKey) || item.IsUnlockedByDefault);
+        public static bool IsUnlocked(IUnlockable item) {
+            var inst = Instance;
+            if (inst == null) return item.IsUnlockedByDefault;
+            return !inst._lockedOverrides.Contains(item.UnlockKey) &&
+                   (IsUnlockedByKey(item.UnlockKey) || item.IsUnlockedByDefault);
+        }
 
-        public bool IsLocked(IUnlockable item) =>
-            !IsUnlocked(item);
+        public static bool IsLocked(IUnlockable item) => !IsUnlocked(item);
 
         #endregion
 
         #region Public API — Key overloads
 
-        public void UnlockByKey(string key, bool savesAcrossSessions) {
+        public static void UnlockByKey(string key, bool savesAcrossSessions) {
+            var inst = Instance;
+            if (inst == null) return;
             if (savesAcrossSessions) {
-                if (_savedUnlocked.Add(key)) {
-                    Save();
-                    BroadcastUnlocked(key);
+                if (inst._savedUnlocked.Add(key)) {
+                    inst.Save();
+                    inst.BroadcastUnlocked(key);
                     EvaluateAutoTriggers();
                 }
             }
             else {
-                if (_sessionUnlocked.Add(key)) {
-                    BroadcastUnlocked(key);
+                if (inst._sessionUnlocked.Add(key)) {
+                    inst.BroadcastUnlocked(key);
                     EvaluateAutoTriggers();
                 }
             }
         }
 
-        public void LockByKey(string key, bool savesAcrossSessions) {
-            _lockedOverrides.Add(key);
+        public static void LockByKey(string key, bool savesAcrossSessions) {
+            var inst = Instance;
+            if (inst == null) return;
+            inst._lockedOverrides.Add(key);
 
             bool changed;
             if (savesAcrossSessions) {
-                changed = _savedUnlocked.Remove(key);
-                if (changed) Save();
+                changed = inst._savedUnlocked.Remove(key);
+                if (changed) inst.Save();
             }
             else {
-                changed = _sessionUnlocked.Remove(key);
+                changed = inst._sessionUnlocked.Remove(key);
             }
 
             if (changed)
-                BroadcastLocked(key);
+                inst.BroadcastLocked(key);
         }
 
-        public bool IsUnlockedByKey(string key) =>
-            _savedUnlocked.Contains(key) || _sessionUnlocked.Contains(key);
+        public static bool IsUnlockedByKey(string key) {
+            var inst = Instance;
+            return inst != null && (inst._savedUnlocked.Contains(key) || inst._sessionUnlocked.Contains(key));
+        }
 
-        public bool IsLockedByKey(string key) =>
-            !IsUnlockedByKey(key);
+        public static bool IsLockedByKey(string key) => !IsUnlockedByKey(key);
 
         #endregion
 
@@ -147,87 +154,95 @@ namespace ProxyCore {
         /// <summary>
         /// Unlocks all items in the collection. Saved items are written to disk in a single pass.
         /// </summary>
-        public void UnlockAll(IEnumerable<IUnlockable> items) {
+        public static void UnlockAll(IEnumerable<IUnlockable> items) {
+            var inst = Instance;
+            if (inst == null) return;
             bool anySaved = false;
             foreach (var item in items) {
-                _lockedOverrides.Remove(item.UnlockKey);
+                inst._lockedOverrides.Remove(item.UnlockKey);
                 if (item.SavesAcrossSessions) {
-                    if (_savedUnlocked.Add(item.UnlockKey)) {
+                    if (inst._savedUnlocked.Add(item.UnlockKey)) {
                         anySaved = true;
-                        BroadcastUnlocked(item.UnlockKey);
+                        inst.BroadcastUnlocked(item.UnlockKey);
                     }
                 }
                 else {
-                    if (_sessionUnlocked.Add(item.UnlockKey))
-                        BroadcastUnlocked(item.UnlockKey);
+                    if (inst._sessionUnlocked.Add(item.UnlockKey))
+                        inst.BroadcastUnlocked(item.UnlockKey);
                 }
             }
-            if (anySaved) Save();
+            if (anySaved) inst.Save();
             EvaluateAutoTriggers();
         }
 
         /// <summary>
         /// Locks all items in the collection. Saved items are written to disk in a single pass.
         /// </summary>
-        public void LockAll(IEnumerable<IUnlockable> items) {
+        public static void LockAll(IEnumerable<IUnlockable> items) {
+            var inst = Instance;
+            if (inst == null) return;
             bool anySaved = false;
             foreach (var item in items) {
-                _lockedOverrides.Add(item.UnlockKey);
+                inst._lockedOverrides.Add(item.UnlockKey);
                 if (item.SavesAcrossSessions) {
-                    if (_savedUnlocked.Remove(item.UnlockKey)) {
+                    if (inst._savedUnlocked.Remove(item.UnlockKey)) {
                         anySaved = true;
-                        BroadcastLocked(item.UnlockKey);
+                        inst.BroadcastLocked(item.UnlockKey);
                     }
                 }
                 else {
-                    if (_sessionUnlocked.Remove(item.UnlockKey))
-                        BroadcastLocked(item.UnlockKey);
+                    if (inst._sessionUnlocked.Remove(item.UnlockKey))
+                        inst.BroadcastLocked(item.UnlockKey);
                 }
             }
-            if (anySaved) Save();
+            if (anySaved) inst.Save();
         }
 
         /// <summary>
         /// Key-based bulk unlock. Each tuple supplies the key and whether it should be saved across sessions.
         /// </summary>
-        public void UnlockAllByKeys(IEnumerable<(string key, bool savesAcrossSessions)> entries) {
+        public static void UnlockAllByKeys(IEnumerable<(string key, bool savesAcrossSessions)> entries) {
+            var inst = Instance;
+            if (inst == null) return;
             bool anySaved = false;
             foreach (var (key, saves) in entries) {
-                _lockedOverrides.Remove(key);
+                inst._lockedOverrides.Remove(key);
                 if (saves) {
-                    if (_savedUnlocked.Add(key)) {
+                    if (inst._savedUnlocked.Add(key)) {
                         anySaved = true;
-                        BroadcastUnlocked(key);
+                        inst.BroadcastUnlocked(key);
                     }
                 }
                 else {
-                    if (_sessionUnlocked.Add(key))
-                        BroadcastUnlocked(key);
+                    if (inst._sessionUnlocked.Add(key))
+                        inst.BroadcastUnlocked(key);
                 }
             }
-            if (anySaved) Save();
+            if (anySaved) inst.Save();
             EvaluateAutoTriggers();
         }
 
         /// <summary>
         /// Key-based bulk lock. Each tuple supplies the key and whether it is stored across sessions.
         /// </summary>
-        public void LockAllByKeys(IEnumerable<(string key, bool savesAcrossSessions)> entries) {
+        public static void LockAllByKeys(IEnumerable<(string key, bool savesAcrossSessions)> entries) {
+            var inst = Instance;
+            if (inst == null) return;
             bool anySaved = false;
             foreach (var (key, saves) in entries) {
-                _lockedOverrides.Add(key);
+                inst._lockedOverrides.Add(key);
                 if (saves) {
-                    if (_savedUnlocked.Remove(key)) {
+                    if (inst._savedUnlocked.Remove(key)) {
                         anySaved = true;
-                        BroadcastLocked(key);
+                        inst.BroadcastLocked(key);
                     }
                 }
                 else {
-                    if (_sessionUnlocked.Remove(key))
-                        BroadcastLocked(key);
+                    if (inst._sessionUnlocked.Remove(key))
+                        inst.BroadcastLocked(key);
                 }
             }
-            if (anySaved) Save();
+            if (anySaved) inst.Save();
         }
 
         #endregion
@@ -238,8 +253,10 @@ namespace ProxyCore {
         /// Clears all saved (cross-session) unlock state and deletes the save file from disk.
         /// Session unlocks and locked overrides are unaffected.
         /// </summary>
-        public void ResetSavedUnlocks() {
-            _savedUnlocked.Clear();
+        public static void ResetSavedUnlocks() {
+            var inst = Instance;
+            if (inst == null) return;
+            inst._savedUnlocked.Clear();
             if (File.Exists(SavePath))
                 File.Delete(SavePath);
         }
@@ -247,9 +264,11 @@ namespace ProxyCore {
         /// <summary>
         /// Clears all session-only unlock state. Saved (cross-session) state is unaffected.
         /// </summary>
-        public void ResetSessionUnlocks() {
-            _sessionUnlocked.Clear();
-            _lockedOverrides.Clear();
+        public static void ResetSessionUnlocks() {
+            var inst = Instance;
+            if (inst == null) return;
+            inst._sessionUnlocked.Clear();
+            inst._lockedOverrides.Clear();
         }
 
         #endregion
@@ -287,14 +306,15 @@ namespace ProxyCore {
         /// the outer do-while loop keeps iterating until no new unlocks occur in a full pass,
         /// so arbitrarily deep chains resolve in O(depth) outer iterations.
         /// </summary>
-        public void EvaluateAutoTriggers() {
-            if (_evaluatingTriggers || _registries == null || _registries.Count == 0) return;
-            _evaluatingTriggers = true;
+        public static void EvaluateAutoTriggers() {
+            var inst = Instance;
+            if (inst == null || inst._evaluatingTriggers || inst._registries == null || inst._registries.Count == 0) return;
+            inst._evaluatingTriggers = true;
             try {
                 bool anyNew;
                 do {
                     anyNew = false;
-                    foreach (var entry in _registries) {
+                    foreach (var entry in inst._registries) {
                         if (entry == null || !entry.Enabled || entry.Registry == null) continue;
                         var catalog = entry.Registry as IUnlockableCatalog;
                         if (catalog == null) continue;
@@ -313,7 +333,7 @@ namespace ProxyCore {
                 } while (anyNew);
             }
             finally {
-                _evaluatingTriggers = false;
+                inst._evaluatingTriggers = false;
             }
         }
 

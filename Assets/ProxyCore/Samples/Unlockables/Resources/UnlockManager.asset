@@ -15,5 +15,12 @@ MonoBehaviour:
   _persistent: 0
   _onUnlocked: {fileID: 11400000, guid: 0e5b5bf46600d2f4fb34c47a25944d6f, type: 2}
   _onLocked: {fileID: 11400000, guid: 9a33d30b1d7352d4c94c504925265fb8, type: 2}
-  _autoTriggers:
-  - {fileID: 11400000, guid: 02d5810e8cec033448873a99afb8eeca, type: 2}
+  _registries:
+  - Registry: {fileID: 11400000, guid: 49f565f002f7ef44ba6e54c02c81575f, type: 2}
+    Enabled: 1
+  - Registry: {fileID: 11400000, guid: c5e887e9c2d20b146a85811757943d26, type: 2}
+    Enabled: 1
+  - Registry: {fileID: 11400000, guid: 0fcc033106171b24e9e032fda7395fd9, type: 2}
+    Enabled: 1
+  - Registry: {fileID: 11400000, guid: 3803158054acb7c4d938c258977a1032, type: 2}
+    Enabled: 1

@@ -10,7 +10,7 @@ namespace ProxyCore.Editor {
         [MenuItem("ProxyCore/Unlockable Actions/Clear Save Data")]
         public static void ClearSaveData() {
             if (Application.isPlaying) {
-                UnlockManager.Instance.ResetSavedUnlocks();
+                UnlockManager.ResetSavedUnlocks();
                 Debug.Log("ProxyCore: Saved unlock data cleared at runtime.");
             }
             else {
@@ -31,7 +31,7 @@ namespace ProxyCore.Editor {
                 return;
             }
 
-            UnlockManager.Instance.ResetSessionUnlocks();
+            UnlockManager.ResetSessionUnlocks();
             Debug.Log("ProxyCore: Session unlock state cleared.");
         }
 
