@@ -20,3 +20,10 @@ MonoBehaviour:
   backStories:
   - storyBeat: Tom has ran away from the Bulldog multiple times.
   - storyBeat: Tom has never caught a single mouse.
+  _lockedBehavior: 0
+  _savesAcrossSessions: 1
+  _isUnlockedByDefault: 0
+  _prerequisites:
+  - {fileID: 11400000, guid: 80707ad8c362d854f8c7dfda04dd9879, type: 2}
+  _prerequisiteMode: 0
+  _autoUnlock: 1

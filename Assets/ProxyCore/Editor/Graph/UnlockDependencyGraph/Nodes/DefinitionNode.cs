@@ -3,15 +3,13 @@ using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace ProxyCore.Editor.Graph
-{
+namespace ProxyCore.Editor.Graph {
     /// <summary>
     /// Graph node representing a <see cref="BaseDefinition"/> that implements
     /// <see cref="IUnlockable"/>. Shows name, type, lock-state badge,
     /// prerequisite mode, and in/out ports for dependency edges.
     /// </summary>
-    public sealed class DefinitionNode : Node
-    {
+    public sealed class DefinitionNode : Node {
         public BaseDefinition Definition { get; private set; }
         public string AssetGuid { get; private set; }
 
@@ -22,8 +20,7 @@ namespace ProxyCore.Editor.Graph
         private Label _badgeLabel;
         private Label _conditionModeLabel;
 
-        public DefinitionNode(BaseDefinition definition, string assetGuid)
-        {
+        public DefinitionNode(BaseDefinition definition, string assetGuid) {
             Definition = definition;
             AssetGuid = assetGuid;
 
@@ -43,8 +40,7 @@ namespace ProxyCore.Editor.Graph
             titleContainer.Insert(0, _badgeLabel);
 
             // Condition mode label (if has prerequisites)
-            if (definition is IHasPrerequisites hasPrereqs)
-            {
+            if (definition is IHasPrerequisites hasPrereqs) {
                 _conditionModeLabel = new Label(
                     hasPrereqs.PrerequisiteMode == ConditionMode.All ? "mode: ALL" : "mode: ANY");
                 _conditionModeLabel.AddToClassList("condition-mode-label");
@@ -69,10 +65,8 @@ namespace ProxyCore.Editor.Graph
             outputContainer.Add(OutputPort);
 
             // Double-click → ping asset in Project window
-            RegisterCallback<MouseDownEvent>(evt =>
-            {
-                if (evt.clickCount == 2)
-                {
+            RegisterCallback<MouseDownEvent>(evt => {
+                if (evt.clickCount == 2) {
                     EditorGUIUtility.PingObject(Definition);
                     Selection.activeObject = Definition;
                 }
@@ -82,10 +76,8 @@ namespace ProxyCore.Editor.Graph
             RefreshPorts();
         }
 
-        public void RefreshBadge()
-        {
-            if (Definition is IUnlockable unlockable)
-            {
+        public void RefreshBadge() {
+            if (Definition is IUnlockable unlockable) {
                 if (unlockable.IsUnlockedByDefault)
                     _badgeLabel.text = "\u2699"; // ⚙
                 else if (Application.isPlaying && UnlockManager.IsUnlocked(unlockable))

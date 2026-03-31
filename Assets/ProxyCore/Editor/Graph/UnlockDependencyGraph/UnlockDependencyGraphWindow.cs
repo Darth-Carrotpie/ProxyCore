@@ -6,15 +6,13 @@ using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace ProxyCore.Editor.Graph
-{
+namespace ProxyCore.Editor.Graph {
     /// <summary>
     /// Host <see cref="EditorWindow"/> for the Unlock Dependency Graph.
     /// Provides a toolbar with registry filter, refresh, auto-layout,
     /// path settings, search, and the full <see cref="UnlockGraphView"/>.
     /// </summary>
-    public sealed class UnlockDependencyGraphWindow : EditorWindow
-    {
+    public sealed class UnlockDependencyGraphWindow : EditorWindow {
         // ── Prefs keys ───────────────────────────────────────────────────
         private const string PREF_DEFINITIONS_PATH = "ProxyCore_UnlockGraph_DefinitionsPath";
         private const string PREF_CONDITIONS_PATH = "ProxyCore_UnlockGraph_ConditionsPath";
@@ -50,8 +48,7 @@ namespace ProxyCore.Editor.Graph
         private bool _isDirty;
 
         // ── Catalog entry ────────────────────────────────────────────────
-        private class RegistryCatalogEntry
-        {
+        private class RegistryCatalogEntry {
             public ScriptableObject Registry;
             public string Name;
             public bool Enabled;
@@ -62,8 +59,7 @@ namespace ProxyCore.Editor.Graph
         // ════════════════════════════════════════════════════════════════
 
         [MenuItem("ProxyCore/Unlock Dependency Graph")]
-        public static void ShowWindow()
-        {
+        public static void ShowWindow() {
             var w = GetWindow<UnlockDependencyGraphWindow>();
             w.titleContent = new GUIContent("Unlock Graph", EditorGUIUtility.IconContent("d_SceneViewFx").image);
             w.minSize = new Vector2(800, 500);
@@ -74,8 +70,7 @@ namespace ProxyCore.Editor.Graph
         // Lifecycle
         // ════════════════════════════════════════════════════════════════
 
-        private void CreateGUI()
-        {
+        private void CreateGUI() {
             // Load or create layout data
             _layoutData = FindOrCreateLayoutData();
 
@@ -99,6 +94,7 @@ namespace ProxyCore.Editor.Graph
             _graphView = new UnlockGraphView();
             _graphView.StretchToParentSize();
             _graphView.OnGraphChanged += OnGraphChanged;
+            _graphView.HostWindow = this;
 
             var graphContainer = new VisualElement();
             graphContainer.style.flexGrow = 1;
@@ -109,45 +105,53 @@ namespace ProxyCore.Editor.Graph
             RebuildGraph();
         }
 
-        private void OnFocus()
-        {
+        private void OnGUI() {
+            // Catch SPACE key in the IMGUI event loop — UIElements
+            // KeyDownEvent is unreliable with IMGUI-hosted toolbars.
+            var e = Event.current;
+            if (e != null && e.type == EventType.KeyDown
+                && e.keyCode == KeyCode.Space
+                && !e.control && !e.alt && !e.command
+                && !_settingsPanelOpen
+                && _graphView != null) {
+                var screenPos = GUIUtility.GUIToScreenPoint(e.mousePosition);
+                _graphView.OpenSearchWindow(screenPos);
+                e.Use();
+            }
+        }
+
+        private void OnFocus() {
             // Refresh when the window is focused
-            if (_graphView != null)
-            {
+            if (_graphView != null) {
                 RefreshCatalogEntries();
                 RefreshKnownPaths();
             }
         }
 
-        private void OnGraphChanged()
-        {
+        private void OnGraphChanged() {
             MarkDirty();
             Repaint();
         }
 
-        private void MarkDirty()
-        {
+        private void MarkDirty() {
             if (_isDirty) return;
             _isDirty = true;
             UpdateTitle();
         }
 
-        private void ClearDirty()
-        {
+        private void ClearDirty() {
             _isDirty = false;
             UpdateTitle();
         }
 
-        private void UpdateTitle()
-        {
+        private void UpdateTitle() {
             string baseName = "Unlock Graph";
             titleContent = new GUIContent(
                 _isDirty ? baseName + " *" : baseName,
                 EditorGUIUtility.IconContent("d_SceneViewFx").image);
         }
 
-        private void SaveAll()
-        {
+        private void SaveAll() {
             if (_layoutData != null)
                 EditorUtility.SetDirty(_layoutData);
             AssetDatabase.SaveAssets();
@@ -158,8 +162,7 @@ namespace ProxyCore.Editor.Graph
         // Toolbar (IMGUI)
         // ════════════════════════════════════════════════════════════════
 
-        private void DrawToolbar()
-        {
+        private void DrawToolbar() {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
 
             // Title
@@ -168,8 +171,7 @@ namespace ProxyCore.Editor.Graph
 
             // Registry filter
             if (GUILayout.Button("Registries ▾", EditorStyles.toolbarDropDown,
-                    GUILayout.Width(100)))
-            {
+                    GUILayout.Width(100))) {
                 ShowRegistryFilterMenu();
             }
 
@@ -177,8 +179,7 @@ namespace ProxyCore.Editor.Graph
 
             // Refresh
             if (GUILayout.Button("↻ Refresh", EditorStyles.toolbarButton,
-                    GUILayout.Width(70)))
-            {
+                    GUILayout.Width(70))) {
                 RefreshCatalogEntries();
                 RebuildGraph();
             }
@@ -186,24 +187,43 @@ namespace ProxyCore.Editor.Graph
             // Save
             EditorGUI.BeginDisabledGroup(!_isDirty);
             if (GUILayout.Button("💾 Save", EditorStyles.toolbarButton,
-                    GUILayout.Width(60)))
-            {
+                    GUILayout.Width(60))) {
                 SaveAll();
             }
             EditorGUI.EndDisabledGroup();
 
             // Auto-Layout
             if (GUILayout.Button("Auto-Layout", EditorStyles.toolbarButton,
-                    GUILayout.Width(80)))
-            {
+                    GUILayout.Width(80))) {
                 UnlockGraphBuilder.AutoLayout(_graphView, _layoutData);
             }
 
             // Group Selected
             if (GUILayout.Button("Group Selected", EditorStyles.toolbarButton,
-                    GUILayout.Width(100)))
-            {
+                    GUILayout.Width(100))) {
                 _graphView.GroupSelectedNodes();
+            }
+
+            GUILayout.Space(4);
+
+            // Ping / Select SO — target icon
+            var pingIcon = EditorGUIUtility.IconContent("d_Search Icon");
+            if (pingIcon == null || pingIcon.image == null)
+                pingIcon = new GUIContent("⊙");
+            pingIcon.tooltip = "Select underlying asset(s) in Inspector";
+            if (GUILayout.Button(pingIcon, EditorStyles.toolbarButton,
+                    GUILayout.Width(28))) {
+                SelectUnderlyingAssets();
+            }
+
+            // Filter duplicates — fills search bar with selected condition name
+            var filterIcon = EditorGUIUtility.IconContent("d_FilterByType");
+            if (filterIcon == null || filterIcon.image == null)
+                filterIcon = new GUIContent("⧫");
+            filterIcon.tooltip = "Filter duplicate condition nodes";
+            if (GUILayout.Button(filterIcon, EditorStyles.toolbarButton,
+                    GUILayout.Width(28))) {
+                FilterDuplicateConditions();
             }
 
             GUILayout.FlexibleSpace();
@@ -211,8 +231,7 @@ namespace ProxyCore.Editor.Graph
             // Search
             _searchFilter = EditorGUILayout.TextField(_searchFilter,
                 EditorStyles.toolbarSearchField, GUILayout.Width(180));
-            if (GUILayout.Button("", GUI.skin.FindStyle("ToolbarSearchCancelButton") ?? EditorStyles.toolbarButton))
-            {
+            if (GUILayout.Button("", GUI.skin.FindStyle("ToolbarSearchCancelButton") ?? EditorStyles.toolbarButton)) {
                 _searchFilter = "";
                 GUI.FocusControl(null);
             }
@@ -232,11 +251,28 @@ namespace ProxyCore.Editor.Graph
         }
 
         // ════════════════════════════════════════════════════════════════
+        // Select underlying assets
+        // ════════════════════════════════════════════════════════════════
+
+        private void SelectUnderlyingAssets() {
+            if (_graphView == null) return;
+
+            var objects = _graphView.GetSelectedObjects();
+            if (objects.Count == 0) return;
+
+            // Set Inspector selection
+            Selection.objects = objects.ToArray();
+
+            // If single object, also ping it in the Project window
+            if (objects.Count == 1)
+                EditorGUIUtility.PingObject(objects[0]);
+        }
+
+        // ════════════════════════════════════════════════════════════════
         // Settings panel (IMGUI)
         // ════════════════════════════════════════════════════════════════
 
-        private void DrawSettingsPanel()
-        {
+        private void DrawSettingsPanel() {
             if (!_settingsPanelOpen) return;
 
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
@@ -260,8 +296,7 @@ namespace ProxyCore.Editor.Graph
         private void DrawPathRow(string label, List<string> knownPaths,
             ref int selectedIdx, ref bool addingNew, ref string newInput,
             string prefKeySelected, string prefKeyExtras, string defaultPath,
-            bool isDefinitions)
-        {
+            bool isDefinitions) {
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField(label, GUILayout.Width(90));
 
@@ -273,20 +308,17 @@ namespace ProxyCore.Editor.Graph
 
             int newIdx = EditorGUILayout.Popup(selectedIdx, displayNames);
 
-            if (newIdx == displayNames.Length - 1)
-            {
+            if (newIdx == displayNames.Length - 1) {
                 // Refresh
                 RefreshKnownPaths();
                 newIdx = selectedIdx;
             }
-            else if (newIdx == displayNames.Length - 2)
-            {
+            else if (newIdx == displayNames.Length - 2) {
                 // New path
                 addingNew = true;
                 newIdx = selectedIdx;
             }
-            else if (newIdx != selectedIdx && newIdx >= 0 && newIdx < knownPaths.Count)
-            {
+            else if (newIdx != selectedIdx && newIdx >= 0 && newIdx < knownPaths.Count) {
                 selectedIdx = newIdx;
                 EditorPrefs.SetString(prefKeySelected, knownPaths[selectedIdx]);
                 UpdateGraphViewPaths();
@@ -295,16 +327,13 @@ namespace ProxyCore.Editor.Graph
             EditorGUILayout.EndHorizontal();
 
             // New path input row
-            if (addingNew)
-            {
+            if (addingNew) {
                 EditorGUILayout.BeginHorizontal();
                 GUILayout.Space(94);
                 newInput = EditorGUILayout.TextField(newInput);
 
-                if (GUILayout.Button("Add", GUILayout.Width(40)))
-                {
-                    if (!string.IsNullOrWhiteSpace(newInput))
-                    {
+                if (GUILayout.Button("Add", GUILayout.Width(40))) {
+                    if (!string.IsNullOrWhiteSpace(newInput)) {
                         string path = newInput.Trim();
                         if (!path.StartsWith("Assets")) path = "Assets/" + path;
 
@@ -324,8 +353,7 @@ namespace ProxyCore.Editor.Graph
                     newInput = "";
                 }
 
-                if (GUILayout.Button("Cancel", GUILayout.Width(55)))
-                {
+                if (GUILayout.Button("Cancel", GUILayout.Width(55))) {
                     addingNew = false;
                     newInput = "";
                 }
@@ -334,17 +362,67 @@ namespace ProxyCore.Editor.Graph
         }
 
         // ════════════════════════════════════════════════════════════════
+        // Filter duplicate condition nodes
+        // ════════════════════════════════════════════════════════════════
+
+        private void FilterDuplicateConditions() {
+            if (_graphView == null) return;
+
+            // If a condition node is selected, filter by its name
+            var selected = _graphView.selection
+                .OfType<ConditionNode>()
+                .FirstOrDefault();
+
+            if (selected != null) {
+                _searchFilter = selected.Condition.name;
+                GUI.FocusControl(null);
+                Repaint();
+                return;
+            }
+
+            // No selection: toggle — if a filter is active, clear it;
+            // otherwise show all conditions that appear more than once
+            if (!string.IsNullOrWhiteSpace(_searchFilter)) {
+                _searchFilter = "";
+                GUI.FocusControl(null);
+                Repaint();
+                return;
+            }
+
+            // Find conditions with multiple nodes
+            var condGrouped = _graphView.nodes.ToList()
+                .OfType<ConditionNode>()
+                .GroupBy(cn => cn.AssetGuid)
+                .Where(g => g.Count() > 1)
+                .ToList();
+
+            if (condGrouped.Count == 0) {
+                Debug.Log("[Unlock Graph] No duplicate condition nodes found.");
+                return;
+            }
+
+            // Select all duplicate nodes so they're easy to spot
+            _graphView.ClearSelection();
+            foreach (var group in condGrouped) {
+                foreach (var cn in group)
+                    _graphView.AddToSelection(cn);
+            }
+
+            var firstName = condGrouped[0].First().Condition.name;
+            _searchFilter = condGrouped.Count == 1 ? firstName : "";
+            GUI.FocusControl(null);
+            Repaint();
+        }
+
+        // ════════════════════════════════════════════════════════════════
         // Registry filter
         // ════════════════════════════════════════════════════════════════
 
-        private void ShowRegistryFilterMenu()
-        {
+        private void ShowRegistryFilterMenu() {
             var menu = new GenericMenu();
-            foreach (var entry in _catalogEntries)
-            {
+            foreach (var entry in _catalogEntries) {
                 var e = entry; // capture
-                menu.AddItem(new GUIContent(e.Name), e.Enabled, () =>
-                {
+                menu.AddItem(new GUIContent(e.Name), e.Enabled, () => {
                     e.Enabled = !e.Enabled;
                     SaveDisabledRegistries();
                     RebuildGraph();
@@ -357,15 +435,12 @@ namespace ProxyCore.Editor.Graph
         // Search filter
         // ════════════════════════════════════════════════════════════════
 
-        private void ApplySearchFilter()
-        {
+        private void ApplySearchFilter() {
             if (_graphView == null) return;
             bool hasFilter = !string.IsNullOrWhiteSpace(_searchFilter);
 
-            _graphView.nodes.ForEach(node =>
-            {
-                if (!hasFilter)
-                {
+            _graphView.nodes.ForEach(node => {
+                if (!hasFilter) {
                     node.visible = true;
                     node.style.display = DisplayStyle.Flex;
                     return;
@@ -382,8 +457,7 @@ namespace ProxyCore.Editor.Graph
         // Graph rebuild
         // ════════════════════════════════════════════════════════════════
 
-        private void RebuildGraph()
-        {
+        private void RebuildGraph() {
             if (_graphView == null) return;
 
             var enabledRegistries = _catalogEntries
@@ -399,8 +473,7 @@ namespace ProxyCore.Editor.Graph
         // Path discovery (EventManagerWindow pattern)
         // ════════════════════════════════════════════════════════════════
 
-        private void RefreshKnownPaths()
-        {
+        private void RefreshKnownPaths() {
             _defKnownPaths = DiscoverPaths("BaseDefinition", PREF_DEFINITIONS_EXTRAS,
                 DEFAULT_DEFINITIONS_PATH);
             _defSelectedPathIdx = RestorePathSelection(_defKnownPaths,
@@ -415,8 +488,7 @@ namespace ProxyCore.Editor.Graph
         }
 
         private static List<string> DiscoverPaths(string baseTypeName,
-            string prefKeyExtras, string defaultPath)
-        {
+            string prefKeyExtras, string defaultPath) {
             var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             // Scan existing assets
@@ -424,8 +496,7 @@ namespace ProxyCore.Editor.Graph
             var baseType = baseTypeName == "BaseDefinition"
                 ? typeof(BaseDefinition) : typeof(UnlockCondition);
 
-            foreach (string guid in guids)
-            {
+            foreach (string guid in guids) {
                 string assetPath = AssetDatabase.GUIDToAssetPath(guid);
                 var obj = AssetDatabase.LoadAssetAtPath<ScriptableObject>(assetPath);
                 if (obj == null || !baseType.IsAssignableFrom(obj.GetType())) continue;
@@ -436,10 +507,8 @@ namespace ProxyCore.Editor.Graph
 
             // Merge manually pinned paths
             string extras = EditorPrefs.GetString(prefKeyExtras, "");
-            if (!string.IsNullOrEmpty(extras))
-            {
-                foreach (string p in extras.Split(';'))
-                {
+            if (!string.IsNullOrEmpty(extras)) {
+                foreach (string p in extras.Split(';')) {
                     string trimmed = p.Trim();
                     if (!string.IsNullOrEmpty(trimmed)) paths.Add(trimmed);
                 }
@@ -452,16 +521,14 @@ namespace ProxyCore.Editor.Graph
         }
 
         private static int RestorePathSelection(List<string> paths,
-            string prefKey, string defaultPath)
-        {
+            string prefKey, string defaultPath) {
             string saved = EditorPrefs.GetString(prefKey, defaultPath);
             int idx = paths.FindIndex(p =>
                 string.Equals(p, saved, StringComparison.OrdinalIgnoreCase));
             return idx >= 0 ? idx : 0;
         }
 
-        private void UpdateGraphViewPaths()
-        {
+        private void UpdateGraphViewPaths() {
             if (_graphView == null) return;
             _graphView.DefinitionsPath = _defSelectedPathIdx >= 0 &&
                 _defSelectedPathIdx < _defKnownPaths.Count
@@ -477,20 +544,17 @@ namespace ProxyCore.Editor.Graph
         // Registry discovery
         // ════════════════════════════════════════════════════════════════
 
-        private void RefreshCatalogEntries()
-        {
+        private void RefreshCatalogEntries() {
             var disabled = LoadDisabledRegistries();
             _catalogEntries.Clear();
 
             string[] guids = AssetDatabase.FindAssets("t:ScriptableObject");
-            foreach (string guid in guids)
-            {
+            foreach (string guid in guids) {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 var so = AssetDatabase.LoadAssetAtPath<ScriptableObject>(path);
                 if (so is not IUnlockableCatalog) continue;
 
-                _catalogEntries.Add(new RegistryCatalogEntry
-                {
+                _catalogEntries.Add(new RegistryCatalogEntry {
                     Registry = so,
                     Name = so.name,
                     Enabled = !disabled.Contains(so.name),
@@ -500,15 +564,13 @@ namespace ProxyCore.Editor.Graph
             _catalogEntries = _catalogEntries.OrderBy(e => e.Name).ToList();
         }
 
-        private HashSet<string> LoadDisabledRegistries()
-        {
+        private HashSet<string> LoadDisabledRegistries() {
             string raw = EditorPrefs.GetString(PREF_DISABLED_REGISTRIES, "");
             if (string.IsNullOrEmpty(raw)) return new HashSet<string>();
             return new HashSet<string>(raw.Split(';'), StringComparer.OrdinalIgnoreCase);
         }
 
-        private void SaveDisabledRegistries()
-        {
+        private void SaveDisabledRegistries() {
             var disabled = _catalogEntries
                 .Where(e => !e.Enabled)
                 .Select(e => e.Name);
@@ -519,11 +581,9 @@ namespace ProxyCore.Editor.Graph
         // Layout data management
         // ════════════════════════════════════════════════════════════════
 
-        private static UnlockGraphLayoutData FindOrCreateLayoutData()
-        {
+        private static UnlockGraphLayoutData FindOrCreateLayoutData() {
             string[] guids = AssetDatabase.FindAssets("t:UnlockGraphLayoutData");
-            if (guids.Length > 0)
-            {
+            if (guids.Length > 0) {
                 string path = AssetDatabase.GUIDToAssetPath(guids[0]);
                 var existing = AssetDatabase.LoadAssetAtPath<UnlockGraphLayoutData>(path);
                 if (existing != null) return existing;

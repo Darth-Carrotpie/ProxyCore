@@ -15,3 +15,11 @@ MonoBehaviour:
   <ID>k__BackingField: -698378717
   description: Jerry has to escape while Tom is sleeping.
   title: The Silent Creeper
+  _lockedBehavior: 1
+  _savesAcrossSessions: 0
+  _isUnlockedByDefault: 0
+  _prerequisites:
+  - {fileID: 11400000, guid: 55ff5938482fa2945ae3ea1364838c55, type: 2}
+  - {fileID: 11400000, guid: a97d69290a298f645ab37b11e714e907, type: 2}
+  _prerequisiteMode: 0
+  _autoUnlock: 1

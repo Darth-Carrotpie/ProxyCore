@@ -14,5 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: ProxyCore::ProxyCore.GameFlagCollection
   _definedFlags:
   - boss_defeated
+  - boss_met
   _onFlagChanged: {fileID: 0}
   _autoEvaluateOnSet: 1

@@ -23,5 +23,6 @@ MonoBehaviour:
   _isUnlockedByDefault: 0
   _prerequisites:
   - {fileID: 0}
+  - {fileID: 11400000, guid: d64d05d3c20b334449a60ffa828157b3, type: 2}
   _prerequisiteMode: 0
   _autoUnlock: 1

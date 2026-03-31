@@ -4,23 +4,20 @@ using UnityEditor;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 
-namespace ProxyCore.Editor.Graph
-{
+namespace ProxyCore.Editor.Graph {
     /// <summary>
     /// Builds the visual graph from existing ScriptableObject data.
     /// Reads registries via <see cref="IUnlockableCatalog"/>, iterates
     /// prerequisites, and creates nodes + edges in the
     /// <see cref="UnlockGraphView"/>.
     /// </summary>
-    public static class UnlockGraphBuilder
-    {
+    public static class UnlockGraphBuilder {
         /// <summary>
         /// Rebuilds the entire graph from the current asset database state.
         /// </summary>
         public static void Build(UnlockGraphView graphView,
             UnlockGraphLayoutData layoutData,
-            List<ScriptableObject> registries)
-        {
+            List<ScriptableObject> registries) {
             graphView.ClearGraph();
             graphView.SetLayoutData(layoutData);
 
@@ -28,10 +25,8 @@ namespace ProxyCore.Editor.Graph
 
             // ── Step 1: Collect all definitions from selected registries ──
             var allDefs = new List<BaseDefinition>();
-            foreach (var reg in registries)
-            {
-                if (reg is IUnlockableCatalog catalog)
-                {
+            foreach (var reg in registries) {
+                if (reg is IUnlockableCatalog catalog) {
                     var defs = catalog.GetCatalogDefinitions();
                     if (defs != null) allDefs.AddRange(defs);
                 }
@@ -49,8 +44,7 @@ namespace ProxyCore.Editor.Graph
             int autoX = 0;
             int autoY = 0;
 
-            foreach (var def in uniqueDefs)
-            {
+            foreach (var def in uniqueDefs) {
                 string path = AssetDatabase.GetAssetPath(def);
                 string guid = AssetDatabase.AssetPathToGUID(path);
                 if (string.IsNullOrEmpty(guid)) continue;
@@ -60,12 +54,10 @@ namespace ProxyCore.Editor.Graph
                 // Determine position — use saved layout or auto-position
                 Vector2 pos;
                 var savedNode = layoutData?.GetNodeEntry(guid);
-                if (savedNode != null)
-                {
+                if (savedNode != null) {
                     pos = savedNode.position;
                 }
-                else
-                {
+                else {
                     pos = new Vector2(autoX * 280, autoY * 120);
                     autoX++;
                     if (autoX > 4) { autoX = 0; autoY++; }
@@ -81,8 +73,7 @@ namespace ProxyCore.Editor.Graph
             // as direct edges) vs. other types (rendered as nodes).
             var conditionNodeGuids = new HashSet<string>();
 
-            foreach (var def in uniqueDefs)
-            {
+            foreach (var def in uniqueDefs) {
                 if (def is not IHasPrerequisites hasPrereqs) continue;
 
                 var prereqs = hasPrereqs.Prerequisites;
@@ -92,41 +83,33 @@ namespace ProxyCore.Editor.Graph
                 var targetNode = graphView.FindDefinitionNode(targetGuid);
                 if (targetNode == null) continue;
 
-                foreach (var condition in prereqs)
-                {
+                foreach (var condition in prereqs) {
                     if (condition == null) continue;
 
-                    if (condition is DefinitionUnlockedCondition duc)
-                    {
+                    if (condition is DefinitionUnlockedCondition duc) {
                         // Direct edge: source definition → target definition
                         var sourceDef = GetDefinitionTarget(duc);
-                        if (sourceDef != null && defGuidMap.TryGetValue(sourceDef, out string sourceGuid))
-                        {
+                        if (sourceDef != null && defGuidMap.TryGetValue(sourceDef, out string sourceGuid)) {
                             var sourceNode = graphView.FindDefinitionNode(sourceGuid);
-                            if (sourceNode != null)
-                            {
+                            if (sourceNode != null) {
                                 graphView.AddEdge(sourceNode.OutputPort, targetNode.InputPort);
                             }
                         }
                     }
-                    else
-                    {
+                    else {
                         // Non-trivial condition → create ConditionNode
                         string condPath = AssetDatabase.GetAssetPath(condition);
                         string condGuid = AssetDatabase.AssetPathToGUID(condPath);
                         if (string.IsNullOrEmpty(condGuid)) continue;
 
                         ConditionNode condNode;
-                        if (!conditionNodeGuids.Contains(condGuid))
-                        {
+                        if (!conditionNodeGuids.Contains(condGuid)) {
                             Vector2 condPos;
                             var savedCond = layoutData?.GetNodeEntry(condGuid);
-                            if (savedCond != null)
-                            {
+                            if (savedCond != null) {
                                 condPos = savedCond.position;
                             }
-                            else
-                            {
+                            else {
                                 // Place condition nodes slightly to the left of the target
                                 var targetPos = targetNode.GetPosition().position;
                                 condPos = targetPos + new Vector2(-220, 50 * conditionNodeGuids.Count);
@@ -136,13 +119,11 @@ namespace ProxyCore.Editor.Graph
                             condNode = graphView.AddConditionNode(condition, condGuid, condPos);
                             conditionNodeGuids.Add(condGuid);
                         }
-                        else
-                        {
+                        else {
                             condNode = graphView.FindConditionNode(condGuid);
                         }
 
-                        if (condNode != null)
-                        {
+                        if (condNode != null) {
                             graphView.AddEdge(condNode.OutputPort, targetNode.InputPort);
                         }
                     }
@@ -150,16 +131,15 @@ namespace ProxyCore.Editor.Graph
             }
 
             // ── Step 4: Recreate groups from layout data ─────────────────
-            if (layoutData != null)
-            {
-                foreach (var groupEntry in layoutData.groups)
-                {
+            if (layoutData != null) {
+                foreach (var groupEntry in layoutData.groups) {
                     var memberNodes = new List<Node>();
-                    foreach (var memberGuid in groupEntry.memberGuids)
-                    {
+                    foreach (var memberGuid in groupEntry.memberGuids) {
                         var dn = graphView.FindDefinitionNode(memberGuid);
                         if (dn != null) { memberNodes.Add(dn); continue; }
-                        var cn = graphView.FindConditionNode(memberGuid);
+                        // Try by NodeId first, then by AssetGuid
+                        var cn = graphView.FindConditionNodeById(memberGuid)
+                              ?? graphView.FindConditionNode(memberGuid);
                         if (cn != null) memberNodes.Add(cn);
                     }
 
@@ -170,8 +150,7 @@ namespace ProxyCore.Editor.Graph
                         memberNodes, groupEntry.groupId);
 
                     // If the group was collapsed, collapse it now
-                    if (groupEntry.collapsed && group != null)
-                    {
+                    if (groupEntry.collapsed && group != null) {
                         graphView.CollapseGroup(group);
                     }
                 }
@@ -187,12 +166,10 @@ namespace ProxyCore.Editor.Graph
         /// definition nodes. Useful for initial graph arrangement.
         /// </summary>
         public static void AutoLayout(UnlockGraphView graphView,
-            UnlockGraphLayoutData layoutData)
-        {
+            UnlockGraphLayoutData layoutData) {
             // Collect all visible definition nodes
             var nodes = new List<DefinitionNode>();
-            graphView.nodes.ForEach(n =>
-            {
+            graphView.nodes.ForEach(n => {
                 if (n is DefinitionNode dn && n.visible)
                     nodes.Add(dn);
             });
@@ -202,17 +179,14 @@ namespace ProxyCore.Editor.Graph
             // Build adjacency: who depends on whom
             var inDegree = new Dictionary<string, int>();
             var adj = new Dictionary<string, List<string>>();
-            foreach (var n in nodes)
-            {
+            foreach (var n in nodes) {
                 inDegree[n.AssetGuid] = 0;
                 adj[n.AssetGuid] = new List<string>();
             }
 
-            graphView.edges.ForEach(e =>
-            {
+            graphView.edges.ForEach(e => {
                 if (e.output?.node is DefinitionNode src &&
-                    e.input?.node is DefinitionNode tgt)
-                {
+                    e.input?.node is DefinitionNode tgt) {
                     adj[src.AssetGuid].Add(tgt.AssetGuid);
                     if (inDegree.ContainsKey(tgt.AssetGuid))
                         inDegree[tgt.AssetGuid]++;
@@ -227,18 +201,15 @@ namespace ProxyCore.Editor.Graph
             var layers = new List<List<string>>();
             var visited = new HashSet<string>();
 
-            while (queue.Count > 0)
-            {
+            while (queue.Count > 0) {
                 var currentLayer = new List<string>();
                 int count = queue.Count;
-                for (int i = 0; i < count; i++)
-                {
+                for (int i = 0; i < count; i++) {
                     var guid = queue.Dequeue();
                     if (!visited.Add(guid)) continue;
                     currentLayer.Add(guid);
 
-                    foreach (var next in adj.GetValueOrDefault(guid, new List<string>()))
-                    {
+                    foreach (var next in adj.GetValueOrDefault(guid, new List<string>())) {
                         inDegree[next]--;
                         if (inDegree[next] == 0)
                             queue.Enqueue(next);
@@ -258,10 +229,8 @@ namespace ProxyCore.Editor.Graph
             const float layerSpacing = 320f;
             const float nodeSpacing = 120f;
 
-            for (int layer = 0; layer < layers.Count; layer++)
-            {
-                for (int idx = 0; idx < layers[layer].Count; idx++)
-                {
+            for (int layer = 0; layer < layers.Count; layer++) {
+                for (int idx = 0; idx < layers[layer].Count; idx++) {
                     var guid = layers[layer][idx];
                     var node = graphView.FindDefinitionNode(guid);
                     if (node == null) continue;
@@ -278,8 +247,7 @@ namespace ProxyCore.Editor.Graph
 
         // ── Helpers ──────────────────────────────────────────────────────
 
-        private static BaseDefinition GetDefinitionTarget(DefinitionUnlockedCondition duc)
-        {
+        private static BaseDefinition GetDefinitionTarget(DefinitionUnlockedCondition duc) {
             var so = new SerializedObject(duc);
             return so.FindProperty("_target").objectReferenceValue as BaseDefinition;
         }

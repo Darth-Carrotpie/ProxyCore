@@ -14,30 +14,42 @@ MonoBehaviour:
   m_EditorClassIdentifier: ProxyCore.Editor::ProxyCore.Editor.UnlockGraphLayoutData
   nodes:
   - assetGuid: 63b1449ea8faea94c9df7e051e06fc01
-    position: {x: -66.666664, y: -67.33333}
+    position: {x: -77.333336, y: -12}
   - assetGuid: 0002ffc0c7c3cb34d81a0373564b6038
-    position: {x: 374, y: -176}
+    position: {x: 320.66666, y: 0}
   - assetGuid: bb4b0b3d7ecc1004b930e581da78a64a
-    position: {x: 506.66666, y: -8.666664}
+    position: {x: 320, y: 120}
   - assetGuid: 50848f73b05a0454c8b007c13cdc83b1
-    position: {x: 840, y: 0}
+    position: {x: -77.333336, y: 120}
   - assetGuid: ec5ad7ebf8a02914a972d8f67d75827b
-    position: {x: 1283.3334, y: 0}
+    position: {x: 0, y: 240}
   - assetGuid: f6cb02f37fa03d14794769fa079c78bc
-    position: {x: 0, y: 120}
+    position: {x: 774, y: 0}
   - assetGuid: 11bd236669b2e1748b6da3c309fdb494
-    position: {x: 280, y: 120}
+    position: {x: 0, y: 360}
+  - assetGuid: a97d69290a298f645ab37b11e714e907
+    position: {x: -77.333336, y: -362}
+  - assetGuid: 80707ad8c362d854f8c7dfda04dd9879
+    position: {x: -398.00006, y: 237.33331}
+  - assetGuid: a97d69290a298f645ab37b11e714e907__1
+    position: {x: -396.66666, y: -12}
+  - assetGuid: a97d69290a298f645ab37b11e714e907__2
+    position: {x: -474, y: -589.3334}
+  - assetGuid: 80707ad8c362d854f8c7dfda04dd9879__1
+    position: {x: -424.66666, y: 120}
+  - assetGuid: 80707ad8c362d854f8c7dfda04dd9879__2
+    position: {x: 274, y: -522}
   groups:
   - groupId: fca1f4ee33ff44c9a527e80b7d7dca68
     groupName: Core chars
-    color: {r: 0.18, g: 0.36, b: 0.53, a: 0.8}
+    color: {r: 1, g: 0.9116968, b: 0.51257855, a: 0.8}
     collapsed: 0
     rect:
       serializedVersion: 2
-      x: -104.66666
-      y: -340.66663
-      width: 936.6667
-      height: 386
+      x: 0
+      y: 0
+      width: NaN
+      height: NaN
     memberGuids:
     - 63b1449ea8faea94c9df7e051e06fc01
     - 0002ffc0c7c3cb34d81a0373564b6038

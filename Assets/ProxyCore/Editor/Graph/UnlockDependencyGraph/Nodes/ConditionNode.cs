@@ -3,27 +3,32 @@ using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace ProxyCore.Editor.Graph
-{
+namespace ProxyCore.Editor.Graph {
     /// <summary>
     /// Graph node for non-trivial <see cref="UnlockCondition"/> assets
     /// (e.g. <see cref="FlagCondition"/>, custom conditions).
     /// <see cref="DefinitionUnlockedCondition"/> is rendered as a direct
     /// edge instead and does not use this node type.
     /// </summary>
-    public sealed class ConditionNode : Node
-    {
+    public sealed class ConditionNode : Node {
         public UnlockCondition Condition { get; private set; }
         public string AssetGuid { get; private set; }
+
+        /// <summary>
+        /// Unique identifier for this visual node instance.
+        /// Differs from <see cref="AssetGuid"/> when duplicates of the
+        /// same condition asset exist on the graph.
+        /// </summary>
+        public string NodeId { get; private set; }
 
         public Port OutputPort { get; private set; }
 
         private Label _detailLabel;
 
-        public ConditionNode(UnlockCondition condition, string assetGuid)
-        {
+        public ConditionNode(UnlockCondition condition, string assetGuid, string nodeId = null) {
             Condition = condition;
             AssetGuid = assetGuid;
+            NodeId = nodeId ?? assetGuid;
 
             AddToClassList("condition-node");
 
@@ -42,10 +47,8 @@ namespace ProxyCore.Editor.Graph
             outputContainer.Add(OutputPort);
 
             // Double-click → ping asset
-            RegisterCallback<MouseDownEvent>(evt =>
-            {
-                if (evt.clickCount == 2)
-                {
+            RegisterCallback<MouseDownEvent>(evt => {
+                if (evt.clickCount == 2) {
                     EditorGUIUtility.PingObject(Condition);
                     Selection.activeObject = Condition;
                 }
@@ -55,15 +58,12 @@ namespace ProxyCore.Editor.Graph
             RefreshPorts();
         }
 
-        public void RefreshDetail()
-        {
+        public void RefreshDetail() {
             _detailLabel.text = GetConditionDetail(Condition);
         }
 
-        private static string GetConditionDetail(UnlockCondition condition)
-        {
-            if (condition is FlagCondition flag)
-            {
+        private static string GetConditionDetail(UnlockCondition condition) {
+            if (condition is FlagCondition flag) {
                 var so = new SerializedObject(flag);
                 var collection = so.FindProperty("_collection").objectReferenceValue;
                 var flagName = so.FindProperty("_flagName").stringValue;
