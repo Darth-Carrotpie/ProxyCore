@@ -218,4 +218,45 @@ Various Unity object, math, and utility extension methods included.
 
 ---
 
+## Unlockables System
+
+Gate any gameplay content — abilities, levels, characters, cosmetics — behind a lock state managed by a single `UnlockManager` ScriptableObject. Implement `IUnlockable` on any class to make it participate. Lock state can optionally persist to disk across sessions or remain session-only. Items can also declare prerequisites via `IHasPrerequisites` so that `UnlockAutoTrigger` assets automatically unlock them once conditions are met, enabling no-code progression chains.
+
+**Minimal implementation** — add `IUnlockable` to any class or `BaseDefinition` subclass:
+
+```csharp
+public class SwordDefinition : BaseDefinition, IUnlockable
+{
+    string IUnlockable.UnlockKey             => $"SwordDefinition:{ID}";
+    bool   IUnlockable.SavesAcrossSessions   => true;
+    bool   IUnlockable.IsUnlockedByDefault   => false;
+    UnlockBehavior IUnlockable.LockedBehavior => UnlockBehavior.HideWhenLocked;
+}
+```
+
+**Runtime usage:**
+
+```csharp
+// Unlock an item (persists if SavesAcrossSessions = true)
+UnlockManager.Instance.Unlock(swordDefinition);
+
+// Query lock state anywhere
+if (UnlockManager.Instance.IsUnlocked(swordDefinition))
+    ShowItem(swordDefinition);
+
+// Lock it again (e.g. seasonal content expiry)
+UnlockManager.Instance.Lock(swordDefinition);
+```
+
+For prerequisite chains, `GameFlagCollection` flags, and standalone (non-registry) usage see the [full documentation](Assets/ProxyCore/Documentation/UnlockablesSystem.md).
+
+---
+
+## Documentation
+
+- [Unlockables System](Assets/ProxyCore/Documentation/UnlockablesSystem.md) — Covers the `UnlockManager`, `IUnlockable`, prerequisite chains, `UnlockCondition`, `GameFlagCollection`, and both standalone and definition-registry usage modes.
+- [Button Strip Usage](Assets/ProxyCore/Documentation/ButtonStripUsage.md) — Explains the Scene View toolbar overlay and how downstream projects can register their own buttons via `ProxyCoreToolbarRegistry`.
+
+---
+
 *ProxyCore Event System - Modern, modular, and maintainable event messaging for Unity*
