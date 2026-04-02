@@ -401,10 +401,7 @@ namespace ProxyCore.Editor.Graph {
             // Add node at mouse position
             string guid = AssetDatabase.AssetPathToGUID(assetPath);
             if (instance is BaseDefinition baseDef) {
-                var node = new DefinitionNode(baseDef, guid);
-                node.SetPosition(new Rect(graphPos, Vector2.zero));
-                AddElement(node);
-                _definitionNodes[guid] = node;
+                var node = AddDefinitionNode(baseDef, guid, graphPos);
 
                 if (_layoutData != null) {
                     _layoutData.SetNodePosition(guid, graphPos);
@@ -570,6 +567,23 @@ namespace ProxyCore.Editor.Graph {
             Undo.RecordObject(_layoutData, "Change group color");
             entry.color = newColor;
             EditorUtility.SetDirty(_layoutData);
+        }
+
+        private void OnDefinitionTypeColorChanged(DefinitionNode sourceNode, Color newColor) {
+            if (_layoutData == null) return;
+
+            string typeName = sourceNode.Definition.GetType().Name;
+
+            Undo.RecordObject(_layoutData, "Change definition type color");
+            _layoutData.SetDefinitionTypeColor(typeName, newColor);
+            EditorUtility.SetDirty(_layoutData);
+
+            // Propagate to all nodes of the same definition type
+            foreach (var kvp in _definitionNodes) {
+                var node = kvp.Value;
+                if (node != sourceNode && node.Definition.GetType().Name == typeName)
+                    node.SetTypeColor(newColor);
+            }
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -772,10 +786,15 @@ namespace ProxyCore.Editor.Graph {
         }
 
         public DefinitionNode AddDefinitionNode(BaseDefinition def, string guid, Vector2 pos) {
-            var node = new DefinitionNode(def, guid);
+            Color? typeColor = null;
+            if (_layoutData != null && _layoutData.HasDefinitionTypeColor(def.GetType().Name))
+                typeColor = _layoutData.GetDefinitionTypeColor(def.GetType().Name);
+
+            var node = new DefinitionNode(def, guid, typeColor);
             node.SetPosition(new Rect(pos, Vector2.zero));
             InstallEdgeConnector(node.InputPort);
             InstallEdgeConnector(node.OutputPort);
+            node.OnTypeColorChanged += OnDefinitionTypeColorChanged;
             AddElement(node);
             _definitionNodes[guid] = node;
             return node;

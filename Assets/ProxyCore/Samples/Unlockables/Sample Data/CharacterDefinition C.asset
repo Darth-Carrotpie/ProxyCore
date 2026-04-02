@@ -20,7 +20,7 @@ MonoBehaviour:
   backStories: []
   _lockedBehavior: 0
   _savesAcrossSessions: 0
-  _isUnlockedByDefault: 0
+  _isUnlockedByDefault: 1
   _prerequisites:
   - {fileID: 11400000, guid: 93b4686cf10b17e4a8851c879374c7ab, type: 2}
   _prerequisiteMode: 0

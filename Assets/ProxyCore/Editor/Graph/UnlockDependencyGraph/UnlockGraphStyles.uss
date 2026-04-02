@@ -43,9 +43,21 @@
     min-width: 180px;
 }
 
-/* ── Default-unlocked tint ───────────────────────────────────────── */
-.definition-node.unlocked-by-default #title {
-    background-color: rgba(50, 130, 70, 0.85);
+/* ── Default-unlocked tint (card outline) ────────────────────────── */
+.definition-node.unlocked-by-default {
+    border-width: 2px;
+    border-color: rgba(50, 130, 70, 0.85);
+    border-radius: 6px;
+}
+
+/* ── Definition type colour swatch ───────────────────────────────── */
+.definition-type-color-swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    margin-right: 6px;
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.3);
 }
 
 /* ── Condition nodes ──────────────────────────────────────────────────── */

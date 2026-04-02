@@ -75,5 +75,44 @@ namespace ProxyCore.Editor {
         public void RemoveGroup(string groupId) {
             groups.RemoveAll(g => g.groupId == groupId);
         }
+
+        // ────────────────────────────────────────────────────────────────────────
+        // Definition type colours
+        // ────────────────────────────────────────────────────────────────────────
+
+        public List<DefinitionTypeColorEntry> definitionTypeColors = new List<DefinitionTypeColorEntry>();
+
+        [Serializable]
+        public class DefinitionTypeColorEntry {
+            public string typeName;
+            public Color color;
+        }
+
+        private static readonly Color DefaultDefinitionColor = new Color(45f / 255f, 100f / 255f, 160f / 255f, 0.85f);
+
+        public Color GetDefinitionTypeColor(string typeName) {
+            foreach (var entry in definitionTypeColors)
+                if (entry.typeName == typeName) return entry.color;
+            return DefaultDefinitionColor;
+        }
+
+        public bool HasDefinitionTypeColor(string typeName) {
+            foreach (var entry in definitionTypeColors)
+                if (entry.typeName == typeName) return true;
+            return false;
+        }
+
+        public void SetDefinitionTypeColor(string typeName, Color color) {
+            foreach (var entry in definitionTypeColors) {
+                if (entry.typeName == typeName) {
+                    entry.color = color;
+                    return;
+                }
+            }
+            definitionTypeColors.Add(new DefinitionTypeColorEntry {
+                typeName = typeName,
+                color = color,
+            });
+        }
     }
 }

@@ -54,3 +54,7 @@ MonoBehaviour:
     - 63b1449ea8faea94c9df7e051e06fc01
     - 0002ffc0c7c3cb34d81a0373564b6038
     - bb4b0b3d7ecc1004b930e581da78a64a
+    - 50848f73b05a0454c8b007c13cdc83b1
+  definitionTypeColors:
+  - typeName: QuestDefinition
+    color: {r: 0.298364, g: 0.52201253, b: 0.24459076, a: 0.85}

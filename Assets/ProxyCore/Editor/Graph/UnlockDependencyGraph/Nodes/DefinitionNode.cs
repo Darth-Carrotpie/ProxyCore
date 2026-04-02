@@ -1,3 +1,4 @@
+using System;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
@@ -16,11 +17,16 @@ namespace ProxyCore.Editor.Graph {
         public Port InputPort { get; private set; }
         public Port OutputPort { get; private set; }
 
+        /// <summary>Fired when the user changes the definition-type colour via the swatch.</summary>
+        public event Action<DefinitionNode, Color> OnTypeColorChanged;
+
         private Label _subtitleLabel;
         private Label _badgeLabel;
         private Label _conditionModeLabel;
+        private VisualElement _colorSwatch;
+        private Color _typeColor;
 
-        public DefinitionNode(BaseDefinition definition, string assetGuid) {
+        public DefinitionNode(BaseDefinition definition, string assetGuid, Color? typeColor = null) {
             Definition = definition;
             AssetGuid = assetGuid;
 
@@ -38,6 +44,14 @@ namespace ProxyCore.Editor.Graph {
             _badgeLabel = new Label();
             _badgeLabel.AddToClassList("node-badge");
             titleContainer.Insert(0, _badgeLabel);
+
+            // Type-colour swatch (clickable → colour picker for this definition type)
+            _typeColor = typeColor ?? new Color(45f / 255f, 100f / 255f, 160f / 255f, 0.85f);
+            _colorSwatch = new VisualElement();
+            _colorSwatch.AddToClassList("definition-type-color-swatch");
+            _colorSwatch.style.backgroundColor = new StyleColor(_typeColor);
+            _colorSwatch.RegisterCallback<MouseDownEvent>(OnSwatchClicked);
+            titleContainer.Insert(0, _colorSwatch);
 
             // Condition mode label (if has prerequisites)
             if (definition is IHasPrerequisites hasPrereqs) {
@@ -74,6 +88,49 @@ namespace ProxyCore.Editor.Graph {
 
             RefreshExpandedState();
             RefreshPorts();
+
+            // Apply initial type colour to title
+            if (typeColor.HasValue)
+                ApplyTypeColorToTitle(_typeColor);
+        }
+
+        public void SetTypeColor(Color color) {
+            _typeColor = color;
+            _colorSwatch.style.backgroundColor = new StyleColor(color);
+            ApplyTypeColorToTitle(color);
+        }
+
+        private void ApplyTypeColorToTitle(Color color) {
+            var titleElement = this.Q("title");
+            if (titleElement != null)
+                titleElement.style.backgroundColor = new StyleColor(color);
+        }
+
+        // ── Colour picker ────────────────────────────────────────────────
+
+        private void OnSwatchClicked(MouseDownEvent evt) {
+            if (evt.button == 0) {
+                evt.StopPropagation();
+                OpenColorPicker(evt);
+            }
+        }
+
+        private void OpenColorPicker(MouseDownEvent evt) {
+            // Compute screen position of the swatch for picker placement
+            var swatchWorldPos = _colorSwatch.LocalToWorld(Vector2.zero);
+            var screenPos = new Vector2(swatchWorldPos.x, swatchWorldPos.y);
+            // Convert panel coordinates to screen coordinates via the editor window
+            if (_colorSwatch.panel?.visualTree != null) {
+                var panelPos = _colorSwatch.worldBound;
+                screenPos = GUIUtility.GUIToScreenPoint(
+                    new Vector2(panelPos.x, panelPos.yMax));
+            }
+
+            Action<Color> onColorUpdate = c => {
+                SetTypeColor(c);
+                OnTypeColorChanged?.Invoke(this, c);
+            };
+            ColorPickerBridge.Show(onColorUpdate, _typeColor, true, false, screenPos);
         }
 
         public void RefreshBadge() {

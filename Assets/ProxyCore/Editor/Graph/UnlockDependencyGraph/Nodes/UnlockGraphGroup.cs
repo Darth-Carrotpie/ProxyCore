@@ -92,6 +92,14 @@ namespace ProxyCore.Editor.Graph {
         }
 
         private void OpenColorPicker() {
+            // Compute screen position of the swatch for picker placement
+            Vector2? screenPos = null;
+            if (_colorSwatch.panel?.visualTree != null) {
+                var panelPos = _colorSwatch.worldBound;
+                screenPos = GUIUtility.GUIToScreenPoint(
+                    new Vector2(panelPos.x, panelPos.yMax));
+            }
+
             // Use EditorWindow-based colour picker so we get an undo-able operation
             Action<Color> onColorUpdate = c => {
                 SetColor(c);
@@ -99,7 +107,7 @@ namespace ProxyCore.Editor.Graph {
             };
 
             // Show the built-in colour picker
-            ColorPickerBridge.Show(onColorUpdate, GroupColor, true, false);
+            ColorPickerBridge.Show(onColorUpdate, GroupColor, true, false, screenPos);
         }
     }
 
@@ -110,7 +118,7 @@ namespace ProxyCore.Editor.Graph {
 
     internal static class ColorPickerBridge {
         public static void Show(Action<Color> onChanged, Color initial,
-            bool showAlpha, bool hdr) {
+            bool showAlpha, bool hdr, Vector2? screenPosition = null) {
             var cpType = typeof(UnityEditor.Editor).Assembly
                 .GetType("UnityEditor.ColorPicker");
 
@@ -127,6 +135,7 @@ namespace ProxyCore.Editor.Graph {
 
                 if (show4 != null) {
                     show4.Invoke(null, new object[] { onChanged, initial, showAlpha, hdr });
+                    PositionColorPicker(cpType, screenPosition);
                     return;
                 }
 
@@ -144,13 +153,36 @@ namespace ProxyCore.Editor.Graph {
                         null);
                     if (show5 != null) {
                         show5.Invoke(null, new object[] { null, onChanged, initial, showAlpha, hdr });
+                        PositionColorPicker(cpType, screenPosition);
                         return;
                     }
                 }
             }
 
             // Fallback — tiny EditorWindow hosting a ColorField
-            ColorPickerFallbackWindow.Open(onChanged, initial, showAlpha);
+            ColorPickerFallbackWindow.Open(onChanged, initial, showAlpha, screenPosition);
+        }
+
+        private static void PositionColorPicker(Type cpType, Vector2? screenPosition) {
+            if (!screenPosition.HasValue) return;
+            try {
+                var getInstance = cpType.GetProperty("instance",
+                    System.Reflection.BindingFlags.Static |
+                    System.Reflection.BindingFlags.NonPublic |
+                    System.Reflection.BindingFlags.Public);
+                if (getInstance != null) {
+                    var picker = getInstance.GetValue(null) as EditorWindow;
+                    if (picker != null) {
+                        var pos = picker.position;
+                        pos.x = screenPosition.Value.x;
+                        pos.y = screenPosition.Value.y;
+                        picker.position = pos;
+                    }
+                }
+            }
+            catch {
+                // Positioning is best-effort; ignore reflection failures
+            }
         }
     }
 
@@ -163,13 +195,20 @@ namespace ProxyCore.Editor.Graph {
         private Color _color;
         private bool _showAlpha;
 
-        public static void Open(Action<Color> onChanged, Color initial, bool showAlpha) {
+        public static void Open(Action<Color> onChanged, Color initial, bool showAlpha,
+            Vector2? screenPosition = null) {
             var w = GetWindow<ColorPickerFallbackWindow>(true, "Pick Color");
             w._onChanged = onChanged;
             w._color = initial;
             w._showAlpha = showAlpha;
             w.minSize = new Vector2(230, 60);
             w.maxSize = new Vector2(230, 60);
+            if (screenPosition.HasValue) {
+                var pos = w.position;
+                pos.x = screenPosition.Value.x;
+                pos.y = screenPosition.Value.y;
+                w.position = pos;
+            }
             w.ShowUtility();
         }
 
