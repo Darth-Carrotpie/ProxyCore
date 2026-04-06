@@ -204,6 +204,14 @@ namespace ProxyCore.Editor.Graph {
                 _graphView.GroupSelectedNodes();
             }
 
+            // Condition Cleanup
+            if (GUILayout.Button("Cleanup", EditorStyles.toolbarButton,
+                    GUILayout.Width(60))) {
+                var dlg = ConditionCleanupDialog.Show();
+                if (dlg.DeletedAny)
+                    RebuildGraph();
+            }
+
             GUILayout.Space(4);
 
             // Ping / Select SO — target icon
