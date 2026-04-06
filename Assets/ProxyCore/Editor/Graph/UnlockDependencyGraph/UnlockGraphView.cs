@@ -413,6 +413,11 @@ namespace ProxyCore.Editor.Graph {
         }
 
         private void CreateConditionAsset(Type type, Vector2 graphPos) {
+            if (type == typeof(FlagCondition)) {
+                CreateFlagConditionAsset(graphPos, false);
+                return;
+            }
+
             string assetName = type.Name;
             var nameInput = EditorInputDialog.Show("Create Condition",
                 "Asset name:", assetName);
@@ -468,6 +473,11 @@ namespace ProxyCore.Editor.Graph {
         }
 
         internal void CreateConditionAssetFromSearch(Type type, Vector2 graphPos) {
+            if (type == typeof(FlagCondition)) {
+                CreateFlagConditionAsset(graphPos, true);
+                return;
+            }
+
             string assetName = type.Name;
             var nameInput = EditorInputDialog.Show("Create Condition",
                 "Asset name:", assetName);
@@ -487,6 +497,40 @@ namespace ProxyCore.Editor.Graph {
             string guid = AssetDatabase.AssetPathToGUID(assetPath);
             var node = AddConditionNode(instance, guid, graphPos);
             CompletePendingConnection(node);
+            OnGraphChanged?.Invoke();
+        }
+
+        private void CreateFlagConditionAsset(Vector2 graphPos, bool completePending) {
+            var dlg = FlagConditionCreateDialog.Show();
+            if (!dlg.Confirmed) return;
+
+            var instance = ScriptableObject.CreateInstance<FlagCondition>();
+            instance.name = dlg.AssetName;
+
+            // Assign the chosen collection and flag via SerializedObject
+            var so = new SerializedObject(instance);
+            so.FindProperty("_collection").objectReferenceValue = dlg.SelectedCollection;
+            so.FindProperty("_flagName").stringValue = dlg.SelectedFlagName;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            EnsureFolderExists(ConditionsPath);
+            string assetPath = AssetDatabase.GenerateUniqueAssetPath(
+                $"{ConditionsPath}/{dlg.AssetName}.asset");
+
+            AssetDatabase.CreateAsset(instance, assetPath);
+            AssetDatabase.SaveAssets();
+
+            string guid = AssetDatabase.AssetPathToGUID(assetPath);
+            var node = AddConditionNode(instance, guid, graphPos);
+
+            if (completePending)
+                CompletePendingConnection(node);
+
+            if (_layoutData != null) {
+                _layoutData.SetNodePosition(node.NodeId, graphPos);
+                EditorUtility.SetDirty(_layoutData);
+            }
+
             OnGraphChanged?.Invoke();
         }
 

@@ -77,8 +77,52 @@
     padding: 4px 8px;
 }
 
+.condition-node .flag-detail-container {
+    padding: 4px 8px;
+}
+
+.condition-node .flag-detail-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.condition-node .flag-detail-key {
+    color: rgba(180, 180, 180, 0.6);
+    font-size: 10px;
+    min-width: 68px;
+    -unity-font-style: italic;
+}
+
+.condition-node .flag-collection-value {
+    color: rgba(80, 200, 200, 0.95);
+    font-size: 11px;
+    -unity-font-style: bold;
+}
+
+.condition-node .flag-name-value {
+    color: rgba(240, 200, 80, 0.95);
+    font-size: 11px;
+    -unity-font-style: bold;
+}
+
+.condition-node .flag-dropdown {
+    min-width: 80px;
+    max-width: 160px;
+    font-size: 10px;
+    margin: 0;
+    padding: 1px 4px;
+    height: 18px;
+}
+
+.condition-node .flag-none-label {
+    color: rgba(200, 100, 100, 0.8);
+    font-size: 10px;
+    -unity-font-style: italic;
+}
+
 .condition-node #contents {
-    min-width: 140px;
+    min-width: 180px;
 }
 
 /* ── Sub-graph (collapsed group) nodes ─────────────────────────────── */

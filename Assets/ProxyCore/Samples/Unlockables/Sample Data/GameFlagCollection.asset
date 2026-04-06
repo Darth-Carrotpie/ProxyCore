@@ -15,5 +15,6 @@ MonoBehaviour:
   _definedFlags:
   - boss_defeated
   - boss_met
+  - boss_met
   _onFlagChanged: {fileID: 0}
   _autoEvaluateOnSet: 1

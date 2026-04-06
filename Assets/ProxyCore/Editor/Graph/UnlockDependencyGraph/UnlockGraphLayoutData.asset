@@ -39,6 +39,8 @@ MonoBehaviour:
     position: {x: -424.66666, y: 120}
   - assetGuid: 80707ad8c362d854f8c7dfda04dd9879__2
     position: {x: 274, y: -522}
+  - assetGuid: ce8c18e86b1f1a049b840916e893218a
+    position: {x: 396, y: -338}
   groups:
   - groupId: fca1f4ee33ff44c9a527e80b7d7dca68
     groupName: Core chars
