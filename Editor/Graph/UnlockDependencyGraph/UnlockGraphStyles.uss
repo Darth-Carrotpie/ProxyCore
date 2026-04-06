@@ -1,0 +1,254 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   UnlockGraphStyles.uss — Stylesheet for the Unlock Dependency Graph
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Graph background ─────────────────────────────────────────────────── */
+.unlock-graph-view {
+    flex-grow: 1;
+}
+
+/* ── Definition nodes ─────────────────────────────────────────────────── */
+.definition-node #title {
+    background-color: rgba(45, 100, 160, 0.85);
+}
+
+.definition-node #title-label {
+    color: #FFFFFF;
+    -unity-font-style: bold;
+    font-size: 13px;
+}
+
+.definition-node .node-subtitle {
+    color: rgba(200, 200, 200, 0.7);
+    font-size: 10px;
+    padding-left: 8px;
+    padding-bottom: 2px;
+}
+
+.definition-node .node-badge {
+    font-size: 14px;
+    padding-right: 6px;
+    -unity-text-align: middle-right;
+}
+
+.definition-node .condition-mode-label {
+    font-size: 10px;
+    color: rgba(220, 220, 220, 0.8);
+    padding-left: 8px;
+    padding-bottom: 4px;
+    -unity-font-style: italic;
+}
+
+.definition-node #contents {
+    min-width: 180px;
+}
+
+/* ── Default-unlocked tint (card outline) ────────────────────────── */
+.definition-node.unlocked-by-default {
+    border-width: 2px;
+    border-color: rgba(50, 130, 70, 0.85);
+    border-radius: 6px;
+}
+
+/* ── Definition type colour swatch ───────────────────────────────── */
+.definition-type-color-swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    margin-right: 6px;
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* ── Condition nodes ──────────────────────────────────────────────────── */
+.condition-node #title {
+    background-color: rgba(180, 140, 40, 0.85);
+}
+
+.condition-node #title-label {
+    color: #FFFFFF;
+    -unity-font-style: bold;
+    font-size: 12px;
+}
+
+.condition-node .node-detail {
+    color: rgba(220, 220, 220, 0.8);
+    font-size: 10px;
+    padding: 4px 8px;
+}
+
+.condition-node .flag-detail-container {
+    padding: 4px 8px;
+}
+
+.condition-node .flag-detail-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.condition-node .flag-detail-key {
+    color: rgba(180, 180, 180, 0.6);
+    font-size: 10px;
+    min-width: 68px;
+    -unity-font-style: italic;
+}
+
+.condition-node .flag-collection-value {
+    color: rgba(80, 200, 200, 0.95);
+    font-size: 11px;
+    -unity-font-style: bold;
+}
+
+.condition-node .flag-name-value {
+    color: rgba(240, 200, 80, 0.95);
+    font-size: 11px;
+    -unity-font-style: bold;
+}
+
+.condition-node .flag-dropdown {
+    min-width: 80px;
+    max-width: 160px;
+    font-size: 10px;
+    margin: 0;
+    padding: 1px 4px;
+    height: 18px;
+}
+
+.condition-node .flag-none-label {
+    color: rgba(200, 100, 100, 0.8);
+    font-size: 10px;
+    -unity-font-style: italic;
+}
+
+.condition-node #contents {
+    min-width: 180px;
+}
+
+/* ── Sub-graph (collapsed group) nodes ─────────────────────────────── */
+.subgraph-node #title {
+    background-color: rgba(90, 60, 140, 0.85);
+}
+
+.subgraph-node #title-label {
+    color: #FFFFFF;
+    -unity-font-style: bold;
+    font-size: 13px;
+}
+
+.subgraph-node .member-count-label {
+    color: rgba(200, 200, 200, 0.7);
+    font-size: 10px;
+    padding-left: 8px;
+    padding-bottom: 4px;
+}
+
+.subgraph-node #contents {
+    min-width: 150px;
+}
+
+/* ── Groups ───────────────────────────────────────────────────────────── */
+.unlock-graph-group {
+    border-width: 2px;
+    border-radius: 8px;
+}
+
+.unlock-graph-group #headerContainer {
+    padding: 4px 8px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}
+
+.unlock-graph-group .group-color-swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    margin-right: 6px;
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.unlock-graph-group .group-minimize-btn {
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+    -unity-text-align: middle-center;
+    margin-left: 4px;
+    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-width: 0;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.unlock-graph-group .group-minimize-btn:hover {
+    background-color: rgba(255, 255, 255, 0.25);
+}
+
+/* ── Edges ────────────────────────────────────────────────────────────── */
+.edge-met {
+    --edge-color: #5DB85D;
+}
+
+.edge-unmet {
+    --edge-color: #D9534F;
+}
+
+.edge-neutral {
+    --edge-color: #888888;
+}
+
+/* ── Minimap ──────────────────────────────────────────────────────────── */
+.unlock-graph-view MiniMap {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    width: 200px;
+    height: 140px;
+    background-color: rgba(20, 20, 20, 0.85);
+    border-width: 1px;
+    border-color: rgba(100, 100, 100, 0.5);
+    border-radius: 4px;
+}
+
+/* ── Toolbar area inside the window ──────────────────────────────────── */
+.graph-toolbar {
+    flex-direction: row;
+    padding: 4px 8px;
+    background-color: rgba(40, 40, 40, 0.95);
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(80, 80, 80, 0.8);
+    align-items: center;
+    min-height: 28px;
+}
+
+.graph-toolbar Label {
+    margin-right: 4px;
+    color: rgba(200, 200, 200, 0.9);
+}
+
+.graph-toolbar Button {
+    margin: 0 2px;
+}
+
+.graph-toolbar .toolbar-spacer {
+    flex-grow: 1;
+}
+
+/* ── Settings panel (slide-out) ──────────────────────────────────── */
+.settings-panel {
+    padding: 8px 12px;
+    background-color: rgba(50, 50, 50, 0.98);
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(80, 80, 80, 0.8);
+}
+
+.settings-panel .path-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.settings-panel .path-row Label {
+    width: 100px;
+    -unity-font-style: bold;
+}
