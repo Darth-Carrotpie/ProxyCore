@@ -18,10 +18,13 @@ namespace ProxyCore.Editor.Graph {
         private const string PREF_CONDITIONS_PATH = "ProxyCore_UnlockGraph_ConditionsPath";
         private const string PREF_DEFINITIONS_EXTRAS = "ProxyCore_UnlockGraph_DefinitionsExtraPaths";
         private const string PREF_CONDITIONS_EXTRAS = "ProxyCore_UnlockGraph_ConditionsExtraPaths";
+        private const string PREF_LAYOUT_DATA_PATH = "ProxyCore_UnlockGraph_LayoutDataPath";
+        private const string PREF_LAYOUT_DATA_EXTRAS = "ProxyCore_UnlockGraph_LayoutDataExtraPaths";
         private const string PREF_DISABLED_REGISTRIES = "ProxyCore_UnlockGraph_DisabledRegistries";
 
-        private const string DEFAULT_DEFINITIONS_PATH = "Assets/Definitions";
-        private const string DEFAULT_CONDITIONS_PATH = "Assets/Conditions";
+        private const string DEFAULT_DEFINITIONS_PATH = "Assets/Data/Unlockables/Definitions";
+        private const string DEFAULT_CONDITIONS_PATH = "Assets/Data/Unlockables/Conditions";
+        private const string DEFAULT_LAYOUT_DATA_PATH = "Assets/Data/Unlockables/Layout";
 
         // ── State ────────────────────────────────────────────────────────
         private UnlockGraphView _graphView;
@@ -33,6 +36,8 @@ namespace ProxyCore.Editor.Graph {
         private int _defSelectedPathIdx;
         private List<string> _condKnownPaths = new();
         private int _condSelectedPathIdx;
+        private List<string> _layoutKnownPaths = new();
+        private int _layoutSelectedPathIdx;
 
         // Settings panel
         private bool _settingsPanelOpen;
@@ -40,6 +45,8 @@ namespace ProxyCore.Editor.Graph {
         private string _newDefPathInput = "";
         private bool _addingNewCondPath;
         private string _newCondPathInput = "";
+        private bool _addingNewLayoutPath;
+        private string _newLayoutPathInput = "";
 
         // Search
         private string _searchFilter = "";
@@ -298,6 +305,12 @@ namespace ProxyCore.Editor.Graph {
                 PREF_CONDITIONS_PATH, PREF_CONDITIONS_EXTRAS,
                 DEFAULT_CONDITIONS_PATH, isDefinitions: false);
 
+            // ── Layout data path ─────────────────────────────────
+            DrawPathRow("Layout Data", _layoutKnownPaths, ref _layoutSelectedPathIdx,
+                ref _addingNewLayoutPath, ref _newLayoutPathInput,
+                PREF_LAYOUT_DATA_PATH, PREF_LAYOUT_DATA_EXTRAS,
+                DEFAULT_LAYOUT_DATA_PATH, isDefinitions: false);
+
             EditorGUILayout.EndVertical();
         }
 
@@ -492,6 +505,10 @@ namespace ProxyCore.Editor.Graph {
             _condSelectedPathIdx = RestorePathSelection(_condKnownPaths,
                 PREF_CONDITIONS_PATH, DEFAULT_CONDITIONS_PATH);
 
+            _layoutKnownPaths = DiscoverLayoutDataPaths();
+            _layoutSelectedPathIdx = RestorePathSelection(_layoutKnownPaths,
+                PREF_LAYOUT_DATA_PATH, DEFAULT_LAYOUT_DATA_PATH);
+
             UpdateGraphViewPaths();
         }
 
@@ -586,23 +603,63 @@ namespace ProxyCore.Editor.Graph {
         }
 
         // ════════════════════════════════════════════════════════════════
+        // Layout data path discovery
+        // ════════════════════════════════════════════════════════════════
+
+        private List<string> DiscoverLayoutDataPaths() {
+            var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Scan existing layout data assets
+            string[] guids = AssetDatabase.FindAssets("t:UnlockGraphLayoutData");
+            foreach (string guid in guids) {
+                string assetPath = AssetDatabase.GUIDToAssetPath(guid);
+                string dir = System.IO.Path.GetDirectoryName(assetPath)?.Replace('\\', '/');
+                if (!string.IsNullOrEmpty(dir)) paths.Add(dir);
+            }
+
+            // Merge manually pinned paths
+            string extras = EditorPrefs.GetString(PREF_LAYOUT_DATA_EXTRAS, "");
+            if (!string.IsNullOrEmpty(extras)) {
+                foreach (string p in extras.Split(';')) {
+                    string trimmed = p.Trim();
+                    if (!string.IsNullOrEmpty(trimmed)) paths.Add(trimmed);
+                }
+            }
+
+            if (paths.Count == 0 || AssetDatabase.IsValidFolder(DEFAULT_LAYOUT_DATA_PATH))
+                paths.Add(DEFAULT_LAYOUT_DATA_PATH);
+
+            return paths.OrderBy(p => p).ToList();
+        }
+
+        private string GetSelectedLayoutDataPath() {
+            if (_layoutKnownPaths != null
+                && _layoutSelectedPathIdx >= 0
+                && _layoutSelectedPathIdx < _layoutKnownPaths.Count)
+                return _layoutKnownPaths[_layoutSelectedPathIdx];
+            return EditorPrefs.GetString(PREF_LAYOUT_DATA_PATH, DEFAULT_LAYOUT_DATA_PATH);
+        }
+
+        // ════════════════════════════════════════════════════════════════
         // Layout data management
         // ════════════════════════════════════════════════════════════════
 
-        private static UnlockGraphLayoutData FindOrCreateLayoutData() {
+        private UnlockGraphLayoutData FindOrCreateLayoutData() {
+            string targetDir = GetSelectedLayoutDataPath();
+
+            // Look for existing layout data in the target directory
             string[] guids = AssetDatabase.FindAssets("t:UnlockGraphLayoutData");
-            if (guids.Length > 0) {
-                string path = AssetDatabase.GUIDToAssetPath(guids[0]);
-                var existing = AssetDatabase.LoadAssetAtPath<UnlockGraphLayoutData>(path);
-                if (existing != null) return existing;
+            foreach (string guid in guids) {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                var candidate = AssetDatabase.LoadAssetAtPath<UnlockGraphLayoutData>(path);
+                if (candidate != null) return candidate;
             }
 
-            // Create one in a sensible editor-only location
+            // Create new layout data at the configured path
             var data = CreateInstance<UnlockGraphLayoutData>();
-            const string dir = "Assets/ProxyCore/Editor/Graph/UnlockDependencyGraph";
-            UnlockGraphView.EnsureFolderExists(dir);
+            UnlockGraphView.EnsureFolderExists(targetDir);
             string assetPath = AssetDatabase.GenerateUniqueAssetPath(
-                $"{dir}/UnlockGraphLayoutData.asset");
+                $"{targetDir}/UnlockGraphLayoutData.asset");
             AssetDatabase.CreateAsset(data, assetPath);
             AssetDatabase.SaveAssets();
             return data;
