@@ -1,10 +1,13 @@
 using JetBrains.Annotations;
+#if UNITY_EDITOR
 using UnityEditor;
+#endif
 using UnityEngine;
-namespace ProxyCore
-{
-    public abstract class SingletonSO<T> : SingletonSO where T : ScriptableObject
-    {
+namespace ProxyCore {
+#if UNITY_EDITOR
+    [InitializeOnLoad]
+#endif
+    public abstract class SingletonSO<T> : SingletonSO where T : ScriptableObject {
         #region  Fields
         [CanBeNull]
         private static T _instance;
@@ -13,18 +16,23 @@ namespace ProxyCore
         private static readonly object Lock = new object();
         #endregion
 
+#if UNITY_EDITOR
+        static SingletonSO() {
+            EditorApplication.playModeStateChanged += state => {
+                if (state == PlayModeStateChange.EnteredEditMode)
+                    _instance = null;
+            };
+        }
+#endif
+
         #region  Properties
         [NotNull]
-        public static T Instance
-        {
-            get
-            {
-                if (Quitting)
-                {
+        public static T Instance {
+            get {
+                if (Quitting) {
                     return null;
                 }
-                lock (Lock)
-                {
+                lock (Lock) {
                     if (_instance != null)
                         return _instance;
 
@@ -33,39 +41,30 @@ namespace ProxyCore
                     //Debug.Log("instance " + _instance);
 
                     // If not found by exact type name, try to find derived types in Resources
-                    if (_instance == null)
-                    {
+                    if (_instance == null) {
                         T[] allResourcesOfType = Resources.LoadAll<T>("");
-                        if (allResourcesOfType.Length > 0)
-                        {
+                        if (allResourcesOfType.Length > 0) {
                             _instance = allResourcesOfType[0];
                             //Debug.Log($"Found in Resources by type search: {_instance.GetType().Name}");
                         }
                     }
 
                     // If not found in Resources, try to find in project assets
-                    if (_instance == null)
-                    {
+                    if (_instance == null) {
 #if UNITY_EDITOR
                         //Debug.Log("instance is null, trying to load");
                         string[] guids = AssetDatabase.FindAssets($"t:{typeof(T).Name}");
 
-                        // If exact type not found, search for derived types
+                        // If exact type not found, search for concrete derived types via TypeCache
                         if (guids.Length == 0) {
-                            //Debug.Log($"Exact type {typeof(T).Name} not found, searching for derived types");
-
-                            // Get all ScriptableObject assets and check for type compatibility
-                            string[] allGuids = AssetDatabase.FindAssets("t:ScriptableObject");
-                            foreach (string guid in allGuids) {
-                                string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-                                var asset = AssetDatabase.LoadAssetAtPath<ScriptableObject>(assetPath);
-
-                                if (asset != null && typeof(T).IsAssignableFrom(asset.GetType())) {
-                                    _instance = asset as T;
-                                    if (_instance != null) {
-                                        //Debug.Log($"Found compatible type: {asset.GetType().Name} for requested type: {typeof(T).Name}");
-                                        break;
-                                    }
+                            var derivedTypes = TypeCache.GetTypesDerivedFrom<T>();
+                            foreach (var type in derivedTypes) {
+                                if (type.IsAbstract) continue;
+                                string[] derivedGuids = AssetDatabase.FindAssets($"t:{type.Name}");
+                                if (derivedGuids.Length > 0) {
+                                    string derivedPath = AssetDatabase.GUIDToAssetPath(derivedGuids[0]);
+                                    _instance = AssetDatabase.LoadAssetAtPath<T>(derivedPath);
+                                    if (_instance != null) break;
                                 }
                             }
                         }
@@ -78,8 +77,7 @@ namespace ProxyCore
                     }
 
                     // If still not found, create a new instance
-                    if (_instance == null)
-                    {
+                    if (_instance == null) {
                         Debug.LogError("Failed to find instance of " + typeof(T).Name + ". Make sure a ScriptableObject of this type exists in the Resources folder or project assets.");
                     }
                     return _instance;
@@ -92,8 +90,7 @@ namespace ProxyCore
         protected virtual void OnInit() { }
         #endregion
     }
-    public abstract class SingletonSO : ScriptableObject
-    {
+    public abstract class SingletonSO : ScriptableObject {
         #region  Fields
         /// <summary>
         /// Controls runtime state lifecycle across scene reloads.
@@ -111,35 +108,36 @@ namespace ProxyCore
 
         #region  Methods
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        private static void ResetStatics()
-        {
+        private static void ResetStatics() {
             Quitting = false;
         }
 
-        protected virtual void OnEnable()
-        {
+#if UNITY_EDITOR
+        [InitializeOnLoadMethod]
+        private static void ResetQuittingOnDomainReload() {
+            Quitting = false;
+        }
+#endif
+
+        protected virtual void OnEnable() {
             Application.quitting += OnApplicationQuitting;
             UnityEngine.SceneManagement.SceneManager.activeSceneChanged += OnActiveSceneChanged;
             OnAwake();
         }
 
-        protected virtual void OnDisable()
-        {
+        protected virtual void OnDisable() {
             Application.quitting -= OnApplicationQuitting;
             UnityEngine.SceneManagement.SceneManager.activeSceneChanged -= OnActiveSceneChanged;
         }
 
-        private void OnApplicationQuitting()
-        {
+        private void OnApplicationQuitting() {
             Quitting = true;
         }
 
-        private void OnActiveSceneChanged(UnityEngine.SceneManagement.Scene oldScene, UnityEngine.SceneManagement.Scene newScene)
-        {
+        private void OnActiveSceneChanged(UnityEngine.SceneManagement.Scene oldScene, UnityEngine.SceneManagement.Scene newScene) {
             // Skip if old scene wasn't valid (initial Play Mode entry from editor)
             // Only clear on legitimate scene-to-scene transitions
-            if (!_persistent && oldScene.IsValid() && oldScene.isLoaded)
-            {
+            if (!_persistent && oldScene.IsValid() && oldScene.isLoaded) {
                 OnSceneReload();
             }
         }
