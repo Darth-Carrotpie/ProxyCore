@@ -17,6 +17,8 @@ namespace ProxyCore.Editor.Graph {
         private const string PREF_DEFINITIONS_PATH = "ProxyCore_UnlockGraph_DefinitionsPath";
         private const string PREF_CONDITIONS_PATH = "ProxyCore_UnlockGraph_ConditionsPath";
         private const string PREF_DEFINITIONS_EXTRAS = "ProxyCore_UnlockGraph_DefinitionsExtraPaths";
+        private const string PREF_DEFINITION_TYPE_PATH_PREFIX = "ProxyCore_UnlockGraph_DefinitionTypePath_";
+        private const string PREF_DEFINITION_TYPE_EXTRAS_PREFIX = "ProxyCore_UnlockGraph_DefinitionTypeExtraPaths_";
         private const string PREF_CONDITIONS_EXTRAS = "ProxyCore_UnlockGraph_ConditionsExtraPaths";
         private const string PREF_LAYOUT_DATA_PATH = "ProxyCore_UnlockGraph_LayoutDataPath";
         private const string PREF_LAYOUT_DATA_EXTRAS = "ProxyCore_UnlockGraph_LayoutDataExtraPaths";
@@ -38,6 +40,7 @@ namespace ProxyCore.Editor.Graph {
         private int _condSelectedPathIdx;
         private List<string> _layoutKnownPaths = new();
         private int _layoutSelectedPathIdx;
+        private readonly List<DefinitionTypePathEntry> _definitionTypePathEntries = new();
 
         // Settings panel
         private bool _settingsPanelOpen;
@@ -59,6 +62,16 @@ namespace ProxyCore.Editor.Graph {
             public ScriptableObject Registry;
             public string Name;
             public bool Enabled;
+        }
+
+        private sealed class DefinitionTypePathEntry {
+            public Type DefinitionType;
+            public string TypePrefsKey;
+            public string ExtrasPrefsKey;
+            public List<string> KnownPaths = new();
+            public int SelectedPathIdx;
+            public bool AddingNewPath;
+            public string NewPathInput = "";
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -293,11 +306,19 @@ namespace ProxyCore.Editor.Graph {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             EditorGUILayout.LabelField("Path Settings", EditorStyles.boldLabel);
 
-            // ── Definitions path ─────────────────────────────────
-            DrawPathRow("Definitions", _defKnownPaths, ref _defSelectedPathIdx,
-                ref _addingNewDefPath, ref _newDefPathInput,
-                PREF_DEFINITIONS_PATH, PREF_DEFINITIONS_EXTRAS,
-                DEFAULT_DEFINITIONS_PATH, isDefinitions: true);
+            // ── Definitions paths (per concrete definition type) ─────────
+            EditorGUILayout.LabelField("Definitions (Per Type)", EditorStyles.miniBoldLabel);
+            if (_definitionTypePathEntries.Count == 0) {
+                EditorGUILayout.HelpBox(
+                    "No unlockable definition types discovered via BaseRegistry<T>.",
+                    MessageType.Info);
+            }
+            else {
+                foreach (var entry in _definitionTypePathEntries)
+                    DrawDefinitionTypePathRow(entry);
+            }
+
+            EditorGUILayout.Space(6);
 
             // ── Conditions path ──────────────────────────────────
             DrawPathRow("Conditions", _condKnownPaths, ref _condSelectedPathIdx,
@@ -377,6 +398,76 @@ namespace ProxyCore.Editor.Graph {
                 if (GUILayout.Button("Cancel", GUILayout.Width(55))) {
                     addingNew = false;
                     newInput = "";
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+        }
+
+        private void DrawDefinitionTypePathRow(DefinitionTypePathEntry entry) {
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(entry.DefinitionType.Name, GUILayout.Width(125));
+
+            var displayNames = entry.KnownPaths
+                .Select(p => p.Replace("/", " \u203A "))
+                .Concat(new[] { "+ New Path…", "↻ Refresh Paths" })
+                .ToArray();
+
+            int newIdx = EditorGUILayout.Popup(entry.SelectedPathIdx, displayNames);
+
+            if (newIdx == displayNames.Length - 1) {
+                RefreshKnownPaths();
+                newIdx = entry.SelectedPathIdx;
+            }
+            else if (newIdx == displayNames.Length - 2) {
+                entry.AddingNewPath = true;
+                newIdx = entry.SelectedPathIdx;
+            }
+            else if (newIdx != entry.SelectedPathIdx && newIdx >= 0 && newIdx < entry.KnownPaths.Count) {
+                entry.SelectedPathIdx = newIdx;
+                EditorPrefs.SetString(entry.TypePrefsKey, entry.KnownPaths[entry.SelectedPathIdx]);
+                UpdateGraphViewPaths();
+            }
+
+            EditorGUILayout.EndHorizontal();
+
+            if (entry.AddingNewPath) {
+                EditorGUILayout.BeginHorizontal();
+                GUILayout.Space(129);
+                entry.NewPathInput = EditorGUILayout.TextField(entry.NewPathInput);
+
+                if (GUILayout.Button("Add", GUILayout.Width(40))) {
+                    if (!string.IsNullOrWhiteSpace(entry.NewPathInput)) {
+                        string path = entry.NewPathInput.Trim();
+                        if (!path.StartsWith("Assets")) path = "Assets/" + path;
+
+                        string extras = EditorPrefs.GetString(entry.ExtrasPrefsKey, "");
+                        extras = string.IsNullOrEmpty(extras) ? path : extras + ";" + path;
+                        EditorPrefs.SetString(entry.ExtrasPrefsKey, extras);
+
+                        RefreshKnownPaths();
+
+                        var refreshed = _definitionTypePathEntries
+                            .FirstOrDefault(e => e.DefinitionType == entry.DefinitionType);
+                        if (refreshed != null) {
+                            refreshed.SelectedPathIdx = refreshed.KnownPaths.FindIndex(p =>
+                                string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
+                            if (refreshed.SelectedPathIdx < 0) refreshed.SelectedPathIdx = 0;
+
+                            if (refreshed.KnownPaths.Count > 0) {
+                                EditorPrefs.SetString(refreshed.TypePrefsKey,
+                                    refreshed.KnownPaths[refreshed.SelectedPathIdx]);
+                            }
+                            UpdateGraphViewPaths();
+                        }
+                    }
+
+                    entry.AddingNewPath = false;
+                    entry.NewPathInput = "";
+                }
+
+                if (GUILayout.Button("Cancel", GUILayout.Width(55))) {
+                    entry.AddingNewPath = false;
+                    entry.NewPathInput = "";
                 }
                 EditorGUILayout.EndHorizontal();
             }
@@ -500,6 +591,8 @@ namespace ProxyCore.Editor.Graph {
             _defSelectedPathIdx = RestorePathSelection(_defKnownPaths,
                 PREF_DEFINITIONS_PATH, DEFAULT_DEFINITIONS_PATH);
 
+            BuildDefinitionTypePathEntries();
+
             _condKnownPaths = DiscoverPaths("UnlockCondition", PREF_CONDITIONS_EXTRAS,
                 DEFAULT_CONDITIONS_PATH);
             _condSelectedPathIdx = RestorePathSelection(_condKnownPaths,
@@ -510,6 +603,109 @@ namespace ProxyCore.Editor.Graph {
                 PREF_LAYOUT_DATA_PATH, DEFAULT_LAYOUT_DATA_PATH);
 
             UpdateGraphViewPaths();
+        }
+
+        private void BuildDefinitionTypePathEntries() {
+            _definitionTypePathEntries.Clear();
+
+            string legacySeedPath = _defSelectedPathIdx >= 0 && _defSelectedPathIdx < _defKnownPaths.Count
+                ? _defKnownPaths[_defSelectedPathIdx]
+                : DEFAULT_DEFINITIONS_PATH;
+
+            var definitionTypes = DiscoverDefinitionTypesFromRegistries();
+
+            foreach (var definitionType in definitionTypes) {
+                string typeKey = GetTypePrefsKeySuffix(definitionType);
+                string selectedPrefKey = PREF_DEFINITION_TYPE_PATH_PREFIX + typeKey;
+                string extrasPrefKey = PREF_DEFINITION_TYPE_EXTRAS_PREFIX + typeKey;
+
+                string defaultPath = EditorPrefs.HasKey(selectedPrefKey)
+                    ? DEFAULT_DEFINITIONS_PATH
+                    : legacySeedPath;
+
+                var knownPaths = DiscoverPathsForDefinitionType(definitionType, extrasPrefKey, defaultPath);
+                int selectedIdx = RestorePathSelection(knownPaths, selectedPrefKey, defaultPath);
+
+                _definitionTypePathEntries.Add(new DefinitionTypePathEntry {
+                    DefinitionType = definitionType,
+                    TypePrefsKey = selectedPrefKey,
+                    ExtrasPrefsKey = extrasPrefKey,
+                    KnownPaths = knownPaths,
+                    SelectedPathIdx = selectedIdx,
+                });
+            }
+        }
+
+        private static List<Type> DiscoverDefinitionTypesFromRegistries() {
+            var result = new HashSet<Type>();
+            string[] guids = AssetDatabase.FindAssets("t:ScriptableObject");
+
+            foreach (string guid in guids) {
+                string assetPath = AssetDatabase.GUIDToAssetPath(guid);
+                var so = AssetDatabase.LoadAssetAtPath<ScriptableObject>(assetPath);
+                if (so is not IUnlockableCatalog) continue;
+
+                var definitionType = TryGetBaseRegistryDefinitionType(so.GetType());
+                if (definitionType == null) continue;
+                if (definitionType.IsAbstract) continue;
+                if (!typeof(BaseDefinition).IsAssignableFrom(definitionType)) continue;
+                if (!typeof(IUnlockable).IsAssignableFrom(definitionType)) continue;
+
+                result.Add(definitionType);
+            }
+
+            return result
+                .OrderBy(t => t.Name)
+                .ThenBy(t => t.FullName)
+                .ToList();
+        }
+
+        private static Type TryGetBaseRegistryDefinitionType(Type type) {
+            while (type != null && type != typeof(object)) {
+                if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(BaseRegistry<>)) {
+                    var args = type.GetGenericArguments();
+                    if (args.Length == 1) return args[0];
+                }
+
+                type = type.BaseType;
+            }
+
+            return null;
+        }
+
+        private static string GetTypePrefsKeySuffix(Type type) {
+            var fullName = type.FullName;
+            return string.IsNullOrWhiteSpace(fullName)
+                ? type.Name
+                : fullName.Replace('+', '.');
+        }
+
+        private static List<string> DiscoverPathsForDefinitionType(Type definitionType,
+            string prefKeyExtras, string defaultPath) {
+            var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            string[] guids = AssetDatabase.FindAssets("t:ScriptableObject");
+            foreach (string guid in guids) {
+                string assetPath = AssetDatabase.GUIDToAssetPath(guid);
+                var obj = AssetDatabase.LoadAssetAtPath<ScriptableObject>(assetPath);
+                if (obj == null || obj.GetType() != definitionType) continue;
+
+                string dir = System.IO.Path.GetDirectoryName(assetPath)?.Replace('\\', '/');
+                if (!string.IsNullOrEmpty(dir)) paths.Add(dir);
+            }
+
+            string extras = EditorPrefs.GetString(prefKeyExtras, "");
+            if (!string.IsNullOrEmpty(extras)) {
+                foreach (string p in extras.Split(';')) {
+                    string trimmed = p.Trim();
+                    if (!string.IsNullOrEmpty(trimmed)) paths.Add(trimmed);
+                }
+            }
+
+            if (paths.Count == 0 || AssetDatabase.IsValidFolder(defaultPath))
+                paths.Add(defaultPath);
+
+            return paths.OrderBy(p => p).ToList();
         }
 
         private static List<string> DiscoverPaths(string baseTypeName,
@@ -555,6 +751,16 @@ namespace ProxyCore.Editor.Graph {
 
         private void UpdateGraphViewPaths() {
             if (_graphView == null) return;
+
+            _graphView.DefinitionPathsByType.Clear();
+            foreach (var entry in _definitionTypePathEntries) {
+                if (entry.SelectedPathIdx < 0 || entry.SelectedPathIdx >= entry.KnownPaths.Count)
+                    continue;
+
+                _graphView.DefinitionPathsByType[entry.DefinitionType] =
+                    entry.KnownPaths[entry.SelectedPathIdx];
+            }
+
             _graphView.DefinitionsPath = _defSelectedPathIdx >= 0 &&
                 _defSelectedPathIdx < _defKnownPaths.Count
                 ? _defKnownPaths[_defSelectedPathIdx]

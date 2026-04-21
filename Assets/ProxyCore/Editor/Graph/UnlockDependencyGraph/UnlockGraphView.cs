@@ -40,6 +40,7 @@ namespace ProxyCore.Editor.Graph {
         // ── Path settings (set by window) ────────────────────────────────
         public string DefinitionsPath { get; set; } = "Assets";
         public string ConditionsPath { get; set; } = "Assets";
+        public Dictionary<Type, string> DefinitionPathsByType { get; } = new();
 
         // ── Events for the host window ───────────────────────────────────
         public event Action OnGraphChanged;
@@ -393,9 +394,10 @@ namespace ProxyCore.Editor.Graph {
             var instance = ScriptableObject.CreateInstance(type);
             instance.name = nameInput;
 
-            EnsureFolderExists(DefinitionsPath);
+            string definitionsPath = ResolveDefinitionsPath(type);
+            EnsureFolderExists(definitionsPath);
             string assetPath = AssetDatabase.GenerateUniqueAssetPath(
-                $"{DefinitionsPath}/{nameInput}.asset");
+                $"{definitionsPath}/{nameInput}.asset");
 
             AssetDatabase.CreateAsset(instance, assetPath);
             AssetDatabase.SaveAssets();
@@ -461,9 +463,10 @@ namespace ProxyCore.Editor.Graph {
             var instance = ScriptableObject.CreateInstance(type);
             instance.name = nameInput;
 
-            EnsureFolderExists(DefinitionsPath);
+            string definitionsPath = ResolveDefinitionsPath(type);
+            EnsureFolderExists(definitionsPath);
             string assetPath = AssetDatabase.GenerateUniqueAssetPath(
-                $"{DefinitionsPath}/{nameInput}.asset");
+                $"{definitionsPath}/{nameInput}.asset");
 
             AssetDatabase.CreateAsset(instance, assetPath);
             AssetDatabase.SaveAssets();
@@ -475,6 +478,16 @@ namespace ProxyCore.Editor.Graph {
                 CompletePendingConnection(node);
             }
             OnGraphChanged?.Invoke();
+        }
+
+        private string ResolveDefinitionsPath(Type definitionType) {
+            if (definitionType != null &&
+                DefinitionPathsByType.TryGetValue(definitionType, out var typedPath) &&
+                !string.IsNullOrWhiteSpace(typedPath)) {
+                return typedPath;
+            }
+
+            return string.IsNullOrWhiteSpace(DefinitionsPath) ? "Assets" : DefinitionsPath;
         }
 
         internal void CreateConditionAssetFromSearch(Type type, Vector2 graphPos) {
