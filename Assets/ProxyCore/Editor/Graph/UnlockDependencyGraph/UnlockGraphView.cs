@@ -221,10 +221,10 @@ namespace ProxyCore.Editor.Graph {
         // ════════════════════════════════════════════════════════════════
 
         private void HandleEdgeCreated(Edge edge) {
-            // Definition Output → Definition Input  ⇒  create DefinitionUnlockedCondition
+            // Definition Output → Definition Input  ⇒  create direct-edge condition
             if (edge.output?.node is DefinitionNode source &&
                 edge.input?.node is DefinitionNode target) {
-                CreateDependencyEdge(source.Definition, target.Definition);
+                CreateDependencyEdge(source.Definition, source.AssetGuid, target.Definition);
             }
             // ConditionNode Output → DefinitionNode Input  ⇒  add condition to prereqs
             else if (edge.output?.node is ConditionNode condNode &&
@@ -245,43 +245,24 @@ namespace ProxyCore.Editor.Graph {
         }
 
         /// <summary>
-        /// Creates a <see cref="DefinitionUnlockedCondition"/> SO wiring
+        /// Creates a direct-edge condition SO wiring
         /// <paramref name="source"/> as a prerequisite of <paramref name="target"/>.
-        /// Reuses an existing condition asset if one already targets the same source.
+        /// Concrete condition type and pass semantics are provided by strategy.
         /// </summary>
-        private void CreateDependencyEdge(BaseDefinition source, BaseDefinition target) {
+        private void CreateDependencyEdge(BaseDefinition source, string sourceGuid, BaseDefinition target) {
             if (!(target is IHasPrerequisites hasPrereqs)) {
                 Debug.LogWarning($"[UnlockGraph] {target.name} does not implement IHasPrerequisites.");
                 return;
             }
 
             // Check if the target already has a prerequisite pointing at source
-            if (hasPrereqs.Prerequisites != null) {
-                foreach (var existing in hasPrereqs.Prerequisites) {
-                    if (existing is DefinitionUnlockedCondition duc) {
-                        var eso = new SerializedObject(duc);
-                        var et = eso.FindProperty("_target").objectReferenceValue as BaseDefinition;
-                        if (et == source) return; // already wired
-                    }
-                }
-            }
+            if (HasDirectDependency(source, hasPrereqs)) return;
 
-            // Try to find an existing DefinitionUnlockedCondition asset
-            // that already references the source definition
-            DefinitionUnlockedCondition condition = FindExistingConditionAsset(source);
-
+            var strategy = ResolveStrategyForDefinition(source.GetType(), sourceGuid);
+            var condition = strategy.GetOrCreateCondition(source, ConditionsPath);
             if (condition == null) {
-                condition = ScriptableObject.CreateInstance<DefinitionUnlockedCondition>();
-                condition.name = $"{source.name}_Unlocked";
-
-                var condSO = new SerializedObject(condition);
-                condSO.FindProperty("_target").objectReferenceValue = source;
-                condSO.ApplyModifiedPropertiesWithoutUndo();
-
-                EnsureFolderExists(ConditionsPath);
-                string assetPath = AssetDatabase.GenerateUniqueAssetPath(
-                    $"{ConditionsPath}/{condition.name}.asset");
-                AssetDatabase.CreateAsset(condition, assetPath);
+                Debug.LogWarning($"[UnlockGraph] Could not create condition for '{source.name}'.");
+                return;
             }
 
             // Add condition to target's prerequisites
@@ -290,21 +271,18 @@ namespace ProxyCore.Editor.Graph {
             AssetDatabase.SaveAssets();
         }
 
-        /// <summary>
-        /// Scans the asset database for a <see cref="DefinitionUnlockedCondition"/>
-        /// whose _target field points at <paramref name="source"/>.
-        /// </summary>
-        private static DefinitionUnlockedCondition FindExistingConditionAsset(BaseDefinition source) {
-            string[] guids = AssetDatabase.FindAssets("t:DefinitionUnlockedCondition");
-            foreach (string guid in guids) {
-                string path = AssetDatabase.GUIDToAssetPath(guid);
-                var duc = AssetDatabase.LoadAssetAtPath<DefinitionUnlockedCondition>(path);
-                if (duc == null) continue;
-                var so = new SerializedObject(duc);
-                var t = so.FindProperty("_target").objectReferenceValue as BaseDefinition;
-                if (t == source) return duc;
+        private static bool HasDirectDependency(BaseDefinition source, IHasPrerequisites hasPrereqs) {
+            var prereqs = hasPrereqs.Prerequisites;
+            if (prereqs == null) return false;
+
+            foreach (var existing in prereqs) {
+                if (existing == null) continue;
+                if (DefinitionEdgeStrategyRegistry.TryGetDirectEdgeSource(existing, out var existingSource) &&
+                    existingSource == source)
+                    return true;
             }
-            return null;
+
+            return false;
         }
 
         private void AddConditionToDefinition(UnlockCondition condition, BaseDefinition target) {
@@ -328,14 +306,15 @@ namespace ProxyCore.Editor.Graph {
             var prereqs = so.FindProperty("_prerequisites");
             if (prereqs == null) return;
 
+            UnlockCondition removedCondition = null;
+
             for (int i = prereqs.arraySize - 1; i >= 0; i--) {
                 var element = prereqs.GetArrayElementAtIndex(i);
-                var condObj = element.objectReferenceValue as DefinitionUnlockedCondition;
+                var condObj = element.objectReferenceValue as UnlockCondition;
                 if (condObj == null) continue;
 
-                var condSO = new SerializedObject(condObj);
-                var condTarget = condSO.FindProperty("_target").objectReferenceValue as BaseDefinition;
-                if (condTarget == source) {
+                if (DefinitionEdgeStrategyRegistry.TryGetDirectEdgeSource(condObj, out var condSource) &&
+                    condSource == source) {
                     Undo.RecordObject(target, "Remove prerequisite");
                     prereqs.DeleteArrayElementAtIndex(i);
                     // DeleteArrayElementAtIndex sets to null first; call again to actually shrink
@@ -345,15 +324,41 @@ namespace ProxyCore.Editor.Graph {
                     so.ApplyModifiedProperties();
                     EditorUtility.SetDirty(target);
 
-                    // Delete the condition asset
-                    string condPath = AssetDatabase.GetAssetPath(condObj);
-                    if (!string.IsNullOrEmpty(condPath))
-                        AssetDatabase.DeleteAsset(condPath);
+                    removedCondition = condObj;
                     break;
                 }
             }
 
+            // Direct-edge conditions may be shared by multiple target definitions.
+            // Delete only when no other prerequisite still references the same asset.
+            if (removedCondition != null && !IsConditionReferenced(removedCondition)) {
+                string condPath = AssetDatabase.GetAssetPath(removedCondition);
+                if (!string.IsNullOrEmpty(condPath))
+                    AssetDatabase.DeleteAsset(condPath);
+            }
+
             AssetDatabase.SaveAssets();
+        }
+
+        private static bool IsConditionReferenced(UnlockCondition condition) {
+            if (condition == null) return false;
+
+            foreach (string guid in AssetDatabase.FindAssets("t:ScriptableObject")) {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                var so = AssetDatabase.LoadAssetAtPath<ScriptableObject>(path);
+                if (so is not BaseDefinition || so is not IHasPrerequisites hasPrereqs)
+                    continue;
+
+                var prereqs = hasPrereqs.Prerequisites;
+                if (prereqs == null) continue;
+
+                for (int i = 0; i < prereqs.Count; i++) {
+                    if (prereqs[i] == condition)
+                        return true;
+                }
+            }
+
+            return false;
         }
 
         private void RemoveConditionFromDefinition(UnlockCondition condition, BaseDefinition target) {
@@ -630,6 +635,20 @@ namespace ProxyCore.Editor.Graph {
             }
         }
 
+        private void OnDefinitionPassStrategyChanged(DefinitionNode sourceNode, string strategyId) {
+            if (_layoutData == null || sourceNode == null) return;
+
+            Undo.RecordObject(_layoutData, "Change definition pass behavior");
+            _layoutData.SetDefinitionPassStrategyId(sourceNode.AssetGuid, strategyId);
+            EditorUtility.SetDirty(_layoutData);
+
+            OnGraphChanged?.Invoke();
+        }
+
+        private void OnDefinitionPrerequisiteModeChanged(DefinitionNode sourceNode, ConditionMode newMode) {
+            OnGraphChanged?.Invoke();
+        }
+
         // ════════════════════════════════════════════════════════════════
         // Group collapse / expand
         // ════════════════════════════════════════════════════════════════
@@ -834,14 +853,60 @@ namespace ProxyCore.Editor.Graph {
             if (_layoutData != null && _layoutData.HasDefinitionTypeColor(def.GetType().Name))
                 typeColor = _layoutData.GetDefinitionTypeColor(def.GetType().Name);
 
-            var node = new DefinitionNode(def, guid, typeColor);
+            var selectedStrategy = ResolveStrategyForDefinition(def.GetType(), guid);
+            var passChoices = BuildPassStrategyChoices(def.GetType());
+
+            var node = new DefinitionNode(def, guid, typeColor,
+                selectedStrategy.PassStateLabel,
+                passChoices,
+                DefinitionEdgeStrategyRegistry.GetStrategyId(selectedStrategy));
             node.SetPosition(new Rect(pos, Vector2.zero));
             InstallEdgeConnector(node.InputPort);
             InstallEdgeConnector(node.OutputPort);
             node.OnTypeColorChanged += OnDefinitionTypeColorChanged;
+            node.OnPassStrategyChanged += OnDefinitionPassStrategyChanged;
+            node.OnPrerequisiteModeChanged += OnDefinitionPrerequisiteModeChanged;
             AddElement(node);
             _definitionNodes[guid] = node;
             return node;
+        }
+
+        private IDefinitionEdgeStrategy ResolveStrategyForDefinition(Type definitionType, string guid) {
+            if (_layoutData != null) {
+                var strategyId = _layoutData.GetDefinitionPassStrategyId(guid);
+                if (DefinitionEdgeStrategyRegistry.TryGetStrategyById(strategyId, out var selected) &&
+                    selected.CanHandle(definitionType)) {
+                    return selected;
+                }
+            }
+
+            return DefinitionEdgeStrategyRegistry.GetStrategy(definitionType);
+        }
+
+        private static List<DefinitionNode.PassStrategyChoice> BuildPassStrategyChoices(Type definitionType) {
+            var strategies = DefinitionEdgeStrategyRegistry.GetStrategiesForSourceType(definitionType);
+            var labelCount = new Dictionary<string, int>();
+
+            for (int i = 0; i < strategies.Count; i++) {
+                string label = strategies[i].PassStateLabel ?? "Pass";
+                labelCount[label] = labelCount.TryGetValue(label, out var count) ? count + 1 : 1;
+            }
+
+            var choices = new List<DefinitionNode.PassStrategyChoice>(strategies.Count);
+            for (int i = 0; i < strategies.Count; i++) {
+                var strategy = strategies[i];
+                string label = strategy.PassStateLabel ?? "Pass";
+
+                if (labelCount[label] > 1)
+                    label = $"{label} ({strategy.GetType().Name})";
+
+                choices.Add(new DefinitionNode.PassStrategyChoice {
+                    StrategyId = DefinitionEdgeStrategyRegistry.GetStrategyId(strategy),
+                    Label = label,
+                });
+            }
+
+            return choices;
         }
 
         public ConditionNode AddConditionNode(UnlockCondition cond, string assetGuid, Vector2 pos, string nodeId = null) {
@@ -942,7 +1007,7 @@ namespace ProxyCore.Editor.Graph {
         }
 
         private void ResolveEdgeObject(Edge edge, List<UnityEngine.Object> objects, HashSet<int> seen) {
-            // Edge between two DefinitionNodes → find the DefinitionUnlockedCondition SO
+            // Edge between two DefinitionNodes → find the direct-edge condition SO
             if (edge.output?.node is DefinitionNode srcDef &&
                 edge.input?.node is DefinitionNode tgtDef) {
                 var cond = FindConditionSO(srcDef.Definition, tgtDef.Definition);
@@ -958,23 +1023,21 @@ namespace ProxyCore.Editor.Graph {
         }
 
         /// <summary>
-        /// Finds the <see cref="DefinitionUnlockedCondition"/> in
+        /// Finds the direct-edge condition in
         /// <paramref name="target"/>'s prerequisites that references
         /// <paramref name="source"/>.
         /// </summary>
-        private static DefinitionUnlockedCondition FindConditionSO(
+        private static UnlockCondition FindConditionSO(
             BaseDefinition source, BaseDefinition target) {
             if (target is not IHasPrerequisites hasPrereqs) return null;
             var prereqs = hasPrereqs.Prerequisites;
             if (prereqs == null) return null;
 
             foreach (var cond in prereqs) {
-                if (cond is DefinitionUnlockedCondition duc) {
-                    var so = new SerializedObject(duc);
-                    var condTarget = so.FindProperty("_target").objectReferenceValue as BaseDefinition;
-                    if (condTarget == source)
-                        return duc;
-                }
+                if (cond == null) continue;
+                if (DefinitionEdgeStrategyRegistry.TryGetDirectEdgeSource(cond, out var condSource) &&
+                    condSource == source)
+                    return cond;
             }
             return null;
         }
@@ -1221,7 +1284,7 @@ namespace ProxyCore.Editor.Graph {
                 });
             }
 
-            // ── Existing Conditions (non-DefinitionUnlockedCondition) ─
+            // ── Existing Conditions (non-direct-edge conditions) ─
             // Duplicates are allowed — the same condition can appear as
             // multiple visual nodes on the graph.
             tree.Add(new SearchTreeGroupEntry(new GUIContent("Existing Conditions"), 1));
@@ -1229,7 +1292,8 @@ namespace ProxyCore.Editor.Graph {
             foreach (string guid in condGuids) {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 var cond = AssetDatabase.LoadAssetAtPath<UnlockCondition>(path);
-                if (cond == null || cond is DefinitionUnlockedCondition) continue;
+                if (cond == null) continue;
+                if (DefinitionEdgeStrategyRegistry.TryGetDirectEdgeSource(cond, out _)) continue;
                 bool alreadyOnGraph = GraphView.FindConditionNode(
                     AssetDatabase.AssetPathToGUID(path)) != null;
                 string label = alreadyOnGraph

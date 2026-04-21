@@ -10,16 +10,15 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1fa3cb8544bb3004fad66678f987d1bb, type: 3}
-  m_Name: QuestDefinition Unlockable
+  m_Name: QuestDefinition Unlock Test
   m_EditorClassIdentifier: Assembly-CSharp::QuestDefinition
-  <ID>k__BackingField: -1596481531
-  description: Jerry has to bait Tom into Bulldog's leash range.
-  title: The Perfect Bait
+  <ID>k__BackingField: 2031092655
+  description: This is a test quest description, alma mater
+  title: Quest Test Quest
   _lockedBehavior: 1
   _savesAcrossSessions: 0
   _isUnlockedByDefault: 0
   _prerequisites:
-  - {fileID: 11400000, guid: 80707ad8c362d854f8c7dfda04dd9879, type: 2}
-  - {fileID: 11400000, guid: 80707ad8c362d854f8c7dfda04dd9879, type: 2}
+  - {fileID: 11400000, guid: 713807800f3b45945ad23a877a7ca4c9, type: 2}
   _prerequisiteMode: 0
   _autoUnlock: 1

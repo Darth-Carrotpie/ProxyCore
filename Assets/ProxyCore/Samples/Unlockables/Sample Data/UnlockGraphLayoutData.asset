@@ -16,17 +16,17 @@ MonoBehaviour:
   - assetGuid: 63b1449ea8faea94c9df7e051e06fc01
     position: {x: -77.333336, y: -12}
   - assetGuid: 0002ffc0c7c3cb34d81a0373564b6038
-    position: {x: 320.66666, y: 0}
+    position: {x: 339.33334, y: -27.333332}
   - assetGuid: bb4b0b3d7ecc1004b930e581da78a64a
     position: {x: 320, y: 120}
   - assetGuid: 50848f73b05a0454c8b007c13cdc83b1
     position: {x: -77.333336, y: 120}
   - assetGuid: ec5ad7ebf8a02914a972d8f67d75827b
-    position: {x: 0, y: 240}
+    position: {x: 1211.3334, y: 156.66667}
   - assetGuid: f6cb02f37fa03d14794769fa079c78bc
     position: {x: 774, y: 0}
   - assetGuid: 11bd236669b2e1748b6da3c309fdb494
-    position: {x: 0, y: 360}
+    position: {x: 229.33333, y: 416}
   - assetGuid: a97d69290a298f645ab37b11e714e907
     position: {x: -113.333336, y: -408.6667}
   - assetGuid: 80707ad8c362d854f8c7dfda04dd9879
@@ -41,6 +41,8 @@ MonoBehaviour:
     position: {x: 274, y: -522}
   - assetGuid: ce8c18e86b1f1a049b840916e893218a
     position: {x: 396, y: -338}
+  - assetGuid: 1e17b13ab20812641be2c74e383bac03
+    position: {x: 1152, y: -12}
   groups:
   - groupId: fca1f4ee33ff44c9a527e80b7d7dca68
     groupName: Core chars
@@ -60,3 +62,6 @@ MonoBehaviour:
   definitionTypeColors:
   - typeName: QuestDefinition
     color: {r: 0.298364, g: 0.52201253, b: 0.24459076, a: 0.85}
+  definitionPassStrategies:
+  - assetGuid: f6cb02f37fa03d14794769fa079c78bc
+    strategyId: ProxyCore.Editor.Graph.DefaultDefinitionEdgeStrategy

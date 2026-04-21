@@ -81,11 +81,18 @@ namespace ProxyCore.Editor {
         // ────────────────────────────────────────────────────────────────────────
 
         public List<DefinitionTypeColorEntry> definitionTypeColors = new List<DefinitionTypeColorEntry>();
+        public List<DefinitionPassStrategyEntry> definitionPassStrategies = new List<DefinitionPassStrategyEntry>();
 
         [Serializable]
         public class DefinitionTypeColorEntry {
             public string typeName;
             public Color color;
+        }
+
+        [Serializable]
+        public class DefinitionPassStrategyEntry {
+            public string assetGuid;
+            public string strategyId;
         }
 
         private static readonly Color DefaultDefinitionColor = new Color(45f / 255f, 100f / 255f, 160f / 255f, 0.85f);
@@ -113,6 +120,30 @@ namespace ProxyCore.Editor {
                 typeName = typeName,
                 color = color,
             });
+        }
+
+        public string GetDefinitionPassStrategyId(string guid) {
+            foreach (var entry in definitionPassStrategies)
+                if (entry.assetGuid == guid) return entry.strategyId;
+            return null;
+        }
+
+        public void SetDefinitionPassStrategyId(string guid, string strategyId) {
+            foreach (var entry in definitionPassStrategies) {
+                if (entry.assetGuid == guid) {
+                    entry.strategyId = strategyId;
+                    return;
+                }
+            }
+
+            definitionPassStrategies.Add(new DefinitionPassStrategyEntry {
+                assetGuid = guid,
+                strategyId = strategyId,
+            });
+        }
+
+        public void RemoveDefinitionPassStrategyId(string guid) {
+            definitionPassStrategies.RemoveAll(e => e.assetGuid == guid);
         }
     }
 }

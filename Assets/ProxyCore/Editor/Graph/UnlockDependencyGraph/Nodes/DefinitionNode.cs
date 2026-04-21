@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
@@ -19,14 +20,34 @@ namespace ProxyCore.Editor.Graph {
 
         /// <summary>Fired when the user changes the definition-type colour via the swatch.</summary>
         public event Action<DefinitionNode, Color> OnTypeColorChanged;
+        public event Action<DefinitionNode, string> OnPassStrategyChanged;
+        public event Action<DefinitionNode, ConditionMode> OnPrerequisiteModeChanged;
+
+        public sealed class PassStrategyChoice {
+            public string StrategyId;
+            public string Label;
+        }
 
         private Label _subtitleLabel;
         private Label _badgeLabel;
-        private Label _conditionModeLabel;
+        private VisualElement _passStateRow;
+        private Label _passStateKeyLabel;
+        private Label _passStateValueLabel;
+        private VisualElement _conditionModeRow;
+        private Label _conditionModeKeyLabel;
+        private PopupField<string> _conditionModeDropdown;
+        private PopupField<PassStrategyChoice> _passModePopup;
         private VisualElement _colorSwatch;
         private Color _typeColor;
+        private string _selectedPassStrategyId;
+        private List<PassStrategyChoice> _passStrategyChoices;
 
-        public DefinitionNode(BaseDefinition definition, string assetGuid, Color? typeColor = null) {
+        private static readonly List<string> s_ModeChoices = new() { "All", "Any" };
+
+        public DefinitionNode(BaseDefinition definition, string assetGuid, Color? typeColor = null,
+            string passStateLabel = null,
+            IReadOnlyList<PassStrategyChoice> passStrategyChoices = null,
+            string selectedPassStrategyId = null) {
             Definition = definition;
             AssetGuid = assetGuid;
 
@@ -34,6 +55,7 @@ namespace ProxyCore.Editor.Graph {
 
             title = definition.name;
             tooltip = $"{definition.GetType().Name}  (ID: {definition.ID})";
+            ConfigureTitleWrapping();
 
             // Subtitle — type name
             _subtitleLabel = new Label(definition.GetType().Name);
@@ -53,12 +75,59 @@ namespace ProxyCore.Editor.Graph {
             _colorSwatch.RegisterCallback<MouseDownEvent>(OnSwatchClicked);
             titleContainer.Insert(0, _colorSwatch);
 
-            // Condition mode label (if has prerequisites)
+            // Pass-state behavior can be switched per-node when multiple
+            // compatible strategies are registered for this definition type.
+            if (passStrategyChoices != null && passStrategyChoices.Count > 0) {
+                _passStrategyChoices = new List<PassStrategyChoice>(passStrategyChoices);
+
+                var selectedChoice = ResolveSelectedPassChoice(selectedPassStrategyId)
+                    ?? _passStrategyChoices[0];
+                _selectedPassStrategyId = selectedChoice.StrategyId;
+
+                _passStateRow = new VisualElement();
+                _passStateRow.AddToClassList("definition-mode-row");
+
+                _passStateKeyLabel = new Label("Pass:");
+                _passStateKeyLabel.AddToClassList("definition-mode-key");
+                _passStateRow.Add(_passStateKeyLabel);
+
+                if (_passStrategyChoices.Count > 1) {
+                    _passModePopup = new PopupField<PassStrategyChoice>(
+                        _passStrategyChoices,
+                        selectedChoice,
+                        c => c?.Label ?? string.Empty,
+                        c => c?.Label ?? string.Empty);
+                    _passModePopup.AddToClassList("definition-mode-dropdown");
+                    _passModePopup.AddToClassList("pass-mode-dropdown");
+                    _passModePopup.RegisterValueChangedCallback(OnPassModeChanged);
+                    _passStateRow.Add(_passModePopup);
+                }
+                else {
+                    _passStateValueLabel = new Label(selectedChoice.Label);
+                    _passStateValueLabel.AddToClassList("definition-mode-value");
+                    _passStateRow.Add(_passStateValueLabel);
+                }
+
+                mainContainer.Add(_passStateRow);
+            }
+            else if (!string.IsNullOrWhiteSpace(passStateLabel)) {
+                _passStateRow = new VisualElement();
+                _passStateRow.AddToClassList("definition-mode-row");
+
+                _passStateKeyLabel = new Label("Pass:");
+                _passStateKeyLabel.AddToClassList("definition-mode-key");
+                _passStateRow.Add(_passStateKeyLabel);
+
+                _passStateValueLabel = new Label(passStateLabel);
+                _passStateValueLabel.AddToClassList("definition-mode-value");
+                _passStateRow.Add(_passStateValueLabel);
+
+                mainContainer.Add(_passStateRow);
+            }
+
+            // Condition mode selector (if has prerequisites)
             if (definition is IHasPrerequisites hasPrereqs) {
-                _conditionModeLabel = new Label(
-                    hasPrereqs.PrerequisiteMode == ConditionMode.All ? "mode: ALL" : "mode: ANY");
-                _conditionModeLabel.AddToClassList("condition-mode-label");
-                mainContainer.Add(_conditionModeLabel);
+                BuildConditionModeUI(hasPrereqs.PrerequisiteMode);
             }
 
             // Unlocked-by-default visual class
@@ -106,6 +175,14 @@ namespace ProxyCore.Editor.Graph {
                 titleElement.style.backgroundColor = new StyleColor(color);
         }
 
+        private void ConfigureTitleWrapping() {
+            var titleLabel = this.Q<Label>("title-label");
+            if (titleLabel == null) return;
+
+            titleLabel.style.whiteSpace = WhiteSpace.Normal;
+            titleLabel.style.unityTextAlign = TextAnchor.MiddleLeft;
+        }
+
         // ── Colour picker ────────────────────────────────────────────────
 
         private void OnSwatchClicked(MouseDownEvent evt) {
@@ -131,6 +208,70 @@ namespace ProxyCore.Editor.Graph {
                 OnTypeColorChanged?.Invoke(this, c);
             };
             ColorPickerBridge.Show(onColorUpdate, _typeColor, true, false, screenPos);
+        }
+
+        private PassStrategyChoice ResolveSelectedPassChoice(string strategyId) {
+            if (string.IsNullOrWhiteSpace(strategyId) || _passStrategyChoices == null)
+                return null;
+
+            for (int i = 0; i < _passStrategyChoices.Count; i++) {
+                var choice = _passStrategyChoices[i];
+                if (choice != null && choice.StrategyId == strategyId)
+                    return choice;
+            }
+
+            return null;
+        }
+
+        private void OnPassModeChanged(ChangeEvent<PassStrategyChoice> evt) {
+            var selected = evt.newValue;
+            if (selected == null || string.IsNullOrWhiteSpace(selected.StrategyId))
+                return;
+
+            if (_selectedPassStrategyId == selected.StrategyId)
+                return;
+
+            _selectedPassStrategyId = selected.StrategyId;
+            OnPassStrategyChanged?.Invoke(this, _selectedPassStrategyId);
+        }
+
+        private void BuildConditionModeUI(ConditionMode mode) {
+            _conditionModeRow = new VisualElement();
+            _conditionModeRow.AddToClassList("definition-mode-row");
+
+            _conditionModeKeyLabel = new Label("Mode:");
+            _conditionModeKeyLabel.AddToClassList("definition-mode-key");
+            _conditionModeRow.Add(_conditionModeKeyLabel);
+
+            string selected = mode == ConditionMode.All ? "All" : "Any";
+            _conditionModeDropdown = new PopupField<string>(s_ModeChoices, selected);
+            _conditionModeDropdown.AddToClassList("definition-mode-dropdown");
+            _conditionModeDropdown.RegisterValueChangedCallback(OnConditionModeChanged);
+            _conditionModeRow.Add(_conditionModeDropdown);
+
+            mainContainer.Add(_conditionModeRow);
+        }
+
+        private void OnConditionModeChanged(ChangeEvent<string> evt) {
+            var newMode = string.Equals(evt.newValue, "Any", StringComparison.OrdinalIgnoreCase)
+                ? ConditionMode.Any
+                : ConditionMode.All;
+
+            var so = new SerializedObject(Definition);
+            var modeProp = so.FindProperty("_prerequisiteMode");
+            if (modeProp == null) {
+                // Revert visual selection if the backing field is not writable.
+                if (_conditionModeDropdown != null)
+                    _conditionModeDropdown.SetValueWithoutNotify(evt.previousValue);
+                return;
+            }
+
+            Undo.RecordObject(Definition, "Change prerequisite mode");
+            modeProp.enumValueIndex = (int)newMode;
+            so.ApplyModifiedProperties();
+            EditorUtility.SetDirty(Definition);
+
+            OnPrerequisiteModeChanged?.Invoke(this, newMode);
         }
 
         public void RefreshBadge() {

@@ -43,6 +43,37 @@ namespace ProxyCore.Editor.Graph {
             var defGuidMap = new Dictionary<BaseDefinition, string>();
             int autoX = 0;
             int autoY = 0;
+            const float refreshInsertDefGapX = 360f;
+            const float refreshInsertDefGapY = 160f;
+            const float refreshInsertCondOffsetX = -280f;
+            const float refreshInsertCondGapY = 70f;
+
+            float refreshInsertBaseX = 0f;
+            float refreshInsertBaseY = 0f;
+
+            if (layoutData != null) {
+                bool foundSaved = false;
+                float maxSavedX = float.MinValue;
+                float minSavedY = float.MaxValue;
+
+                foreach (var def in uniqueDefs) {
+                    string savedPath = AssetDatabase.GetAssetPath(def);
+                    string savedGuid = AssetDatabase.AssetPathToGUID(savedPath);
+                    if (string.IsNullOrEmpty(savedGuid)) continue;
+
+                    var savedEntry = layoutData.GetNodeEntry(savedGuid);
+                    if (savedEntry == null) continue;
+
+                    foundSaved = true;
+                    if (savedEntry.position.x > maxSavedX) maxSavedX = savedEntry.position.x;
+                    if (savedEntry.position.y < minSavedY) minSavedY = savedEntry.position.y;
+                }
+
+                if (foundSaved) {
+                    refreshInsertBaseX = maxSavedX + refreshInsertDefGapX;
+                    refreshInsertBaseY = minSavedY;
+                }
+            }
 
             foreach (var def in uniqueDefs) {
                 string path = AssetDatabase.GetAssetPath(def);
@@ -58,7 +89,9 @@ namespace ProxyCore.Editor.Graph {
                     pos = savedNode.position;
                 }
                 else {
-                    pos = new Vector2(autoX * 280, autoY * 120);
+                    pos = new Vector2(
+                        refreshInsertBaseX + autoX * refreshInsertDefGapX,
+                        refreshInsertBaseY + autoY * refreshInsertDefGapY);
                     autoX++;
                     if (autoX > 4) { autoX = 0; autoY++; }
 
@@ -69,8 +102,8 @@ namespace ProxyCore.Editor.Graph {
             }
 
             // ── Step 3: Create condition nodes + edges ───────────────────
-            // Track which conditions are DefinitionUnlockedCondition (rendered
-            // as direct edges) vs. other types (rendered as nodes).
+            // Direct-edge conditions are resolved by registered strategies.
+            // Other conditions are rendered as standalone condition nodes.
             var conditionNodeGuids = new HashSet<string>();
 
             foreach (var def in uniqueDefs) {
@@ -86,9 +119,8 @@ namespace ProxyCore.Editor.Graph {
                 foreach (var condition in prereqs) {
                     if (condition == null) continue;
 
-                    if (condition is DefinitionUnlockedCondition duc) {
+                    if (DefinitionEdgeStrategyRegistry.TryGetDirectEdgeSource(condition, out var sourceDef)) {
                         // Direct edge: source definition → target definition
-                        var sourceDef = GetDefinitionTarget(duc);
                         if (sourceDef != null && defGuidMap.TryGetValue(sourceDef, out string sourceGuid)) {
                             var sourceNode = graphView.FindDefinitionNode(sourceGuid);
                             if (sourceNode != null) {
@@ -112,7 +144,9 @@ namespace ProxyCore.Editor.Graph {
                             else {
                                 // Place condition nodes slightly to the left of the target
                                 var targetPos = targetNode.GetPosition().position;
-                                condPos = targetPos + new Vector2(-220, 50 * conditionNodeGuids.Count);
+                                condPos = targetPos + new Vector2(
+                                    refreshInsertCondOffsetX,
+                                    refreshInsertCondGapY * conditionNodeGuids.Count);
                                 layoutData?.SetNodePosition(condGuid, condPos);
                             }
 
@@ -243,13 +277,6 @@ namespace ProxyCore.Editor.Graph {
 
             if (layoutData != null)
                 EditorUtility.SetDirty(layoutData);
-        }
-
-        // ── Helpers ──────────────────────────────────────────────────────
-
-        private static BaseDefinition GetDefinitionTarget(DefinitionUnlockedCondition duc) {
-            var so = new SerializedObject(duc);
-            return so.FindProperty("_target").objectReferenceValue as BaseDefinition;
         }
     }
 }

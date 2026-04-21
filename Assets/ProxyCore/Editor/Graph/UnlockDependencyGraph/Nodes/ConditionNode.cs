@@ -9,8 +9,8 @@ namespace ProxyCore.Editor.Graph {
     /// <summary>
     /// Graph node for non-trivial <see cref="UnlockCondition"/> assets
     /// (e.g. <see cref="FlagCondition"/>, custom conditions).
-    /// <see cref="DefinitionUnlockedCondition"/> is rendered as a direct
-    /// edge instead and does not use this node type.
+    /// Conditions recognized as direct edges by definition-edge strategies
+    /// are rendered as direct links instead and do not use this node type.
     ///
     /// For <see cref="FlagCondition"/>, the node displays the collection
     /// and flag name on separate color-coded rows with inline dropdowns
@@ -48,6 +48,7 @@ namespace ProxyCore.Editor.Graph {
 
             title = condition.name;
             tooltip = condition.GetType().Name;
+            ConfigureTitleWrapping();
 
             // Build the detail area — structured for FlagCondition, plain label otherwise
             BuildDetailUI(condition);
@@ -207,6 +208,14 @@ namespace ProxyCore.Editor.Graph {
                 if (coll != null) result.Add(coll);
             }
             return result;
+        }
+
+        private void ConfigureTitleWrapping() {
+            var titleLabel = this.Q<Label>("title-label");
+            if (titleLabel == null) return;
+
+            titleLabel.style.whiteSpace = WhiteSpace.Normal;
+            titleLabel.style.unityTextAlign = TextAnchor.MiddleLeft;
         }
     }
 }

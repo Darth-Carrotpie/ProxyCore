@@ -39,6 +39,42 @@
     -unity-font-style: italic;
 }
 
+.definition-node .pass-mode-dropdown {
+    margin: 0;
+    height: 18px;
+    font-size: 10px;
+}
+
+.definition-node .definition-mode-row {
+    flex-direction: row;
+    align-items: center;
+    margin-left: 8px;
+    margin-right: 8px;
+    margin-bottom: 4px;
+}
+
+.definition-node .definition-mode-key {
+    color: rgba(180, 180, 180, 0.75);
+    font-size: 10px;
+    min-width: 42px;
+    -unity-font-style: italic;
+}
+
+.definition-node .definition-mode-dropdown {
+    min-width: 80px;
+    max-width: 150px;
+    height: 18px;
+    font-size: 10px;
+    margin: 0;
+    padding: 1px 4px;
+}
+
+.definition-node .definition-mode-value {
+    color: rgba(220, 220, 220, 0.85);
+    font-size: 10px;
+    -unity-font-style: bold;
+}
+
 .definition-node #contents {
     min-width: 180px;
 }
