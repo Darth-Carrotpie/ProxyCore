@@ -7,6 +7,33 @@ namespace ProxyCore.Editor
     [CustomEditor(typeof(UnlockManager))]
     public class UnlockManagerEditor : UnityEditor.Editor
     {
+        [InitializeOnLoadMethod]
+        private static void InitializePlayModeRegistryRefreshHook()
+        {
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+        }
+
+        private static void OnPlayModeStateChanged(PlayModeStateChange state)
+        {
+            if (state != PlayModeStateChange.EnteredPlayMode)
+                return;
+
+            EditorApplication.delayCall -= RefreshRegistriesOnPlayModeEnter;
+            EditorApplication.delayCall += RefreshRegistriesOnPlayModeEnter;
+        }
+
+        private static void RefreshRegistriesOnPlayModeEnter()
+        {
+            EditorApplication.delayCall -= RefreshRegistriesOnPlayModeEnter;
+
+            var manager = UnlockManager.Instance;
+            if (manager == null)
+                return;
+
+            RefreshRegistries(manager);
+        }
+
         public override void OnInspectorGUI()
         {
             DrawDefaultInspector();

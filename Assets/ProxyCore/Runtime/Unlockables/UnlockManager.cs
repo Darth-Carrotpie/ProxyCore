@@ -1,6 +1,9 @@
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 namespace ProxyCore {
     /// <summary>
@@ -37,6 +40,9 @@ namespace ProxyCore {
         [SerializeField] private List<RegistryEntry> _registries = new List<RegistryEntry>();
 
         private bool _evaluatingTriggers;
+        [System.NonSerialized] private bool _didWarnEmptyRegistries;
+        [System.NonSerialized] private bool _didWarnUnusableRegistries;
+        [System.NonSerialized] private bool _didWarnStaleRegistries;
 
         [System.Serializable]
         private class RegistryEntry {
@@ -57,7 +63,13 @@ namespace ProxyCore {
             base.OnAwake();
             // Session unlocks must clear on scene reload; persistent disk data is always re-loaded.
             _persistent = false;
+            _didWarnEmptyRegistries = false;
+            _didWarnUnusableRegistries = false;
+            _didWarnStaleRegistries = false;
             Load();
+#if UNITY_EDITOR
+            ValidateRegistryConfigurationInEditor();
+#endif
             EvaluateAutoTriggers();
         }
 
@@ -308,16 +320,23 @@ namespace ProxyCore {
         /// </summary>
         public static void EvaluateAutoTriggers() {
             var inst = Instance;
-            if (inst == null || inst._evaluatingTriggers || inst._registries == null || inst._registries.Count == 0) return;
+            if (inst == null || inst._evaluatingTriggers) return;
+            if (inst._registries == null || inst._registries.Count == 0) {
+                inst.WarnEmptyRegistriesOnce();
+                return;
+            }
+
             inst._evaluatingTriggers = true;
             try {
                 bool anyNew;
                 do {
                     anyNew = false;
+                    bool hasUsableCatalog = false;
                     foreach (var entry in inst._registries) {
                         if (entry == null || !entry.Enabled || entry.Registry == null) continue;
                         var catalog = entry.Registry as IUnlockableCatalog;
                         if (catalog == null) continue;
+                        hasUsableCatalog = true;
 
                         foreach (var def in catalog.GetCatalogDefinitions()) {
                             if (!(def is IUnlockable unlockable)) continue;
@@ -329,6 +348,11 @@ namespace ProxyCore {
                                 anyNew = true;
                             }
                         }
+                    }
+
+                    if (!hasUsableCatalog) {
+                        inst.WarnUnusableRegistriesOnce();
+                        return;
                     }
                 } while (anyNew);
             }
@@ -343,15 +367,99 @@ namespace ProxyCore {
 
             if (prereqs.PrerequisiteMode == ConditionMode.All) {
                 foreach (var c in conditions)
-                    if (c == null || !c.Evaluate()) return false;
+                    if (c == null || !TryEvaluateCondition(prereqs, c, failOnException: true, out bool result) || !result)
+                        return false;
                 return true;
             }
             else {
                 foreach (var c in conditions)
-                    if (c != null && c.Evaluate()) return true;
+                    if (c != null && TryEvaluateCondition(prereqs, c, failOnException: false, out bool result) && result)
+                        return true;
                 return false;
             }
         }
+
+        private static bool TryEvaluateCondition(IHasPrerequisites prereqs,
+            UnlockCondition condition, bool failOnException, out bool result) {
+            result = false;
+            try {
+                result = condition.Evaluate();
+                return true;
+            }
+            catch (System.Exception ex) {
+                LogConditionEvaluationError(prereqs, condition, ex);
+                return !failOnException;
+            }
+        }
+
+        private static void LogConditionEvaluationError(IHasPrerequisites prereqs,
+            UnlockCondition condition, System.Exception ex) {
+            string ownerName = GetPrereqOwnerName(prereqs);
+            Debug.LogError(
+                $"[UnlockManager] Condition '{condition.name}' threw while evaluating prerequisites for '{ownerName}': {ex}",
+                condition);
+        }
+
+        private static string GetPrereqOwnerName(IHasPrerequisites prereqs) {
+            if (prereqs is Object obj && obj != null) return obj.name;
+            return prereqs?.GetType().Name ?? "<unknown>";
+        }
+
+        private void WarnEmptyRegistriesOnce() {
+            if (_didWarnEmptyRegistries) return;
+            _didWarnEmptyRegistries = true;
+            Debug.LogWarning(
+                "[UnlockManager] Auto-unlock registry list is empty. Run ProxyCore/Unlockable Actions/Refresh Unlock Registries or click Refresh Registries in the UnlockManager inspector.",
+                this);
+        }
+
+        private void WarnUnusableRegistriesOnce() {
+            if (_didWarnUnusableRegistries) return;
+            _didWarnUnusableRegistries = true;
+            Debug.LogWarning(
+                "[UnlockManager] Auto-unlock registries are configured but none are usable (disabled, null, or not IUnlockableCatalog). Run Refresh Unlock Registries and verify Enabled flags.",
+                this);
+        }
+
+#if UNITY_EDITOR
+        private void ValidateRegistryConfigurationInEditor() {
+            if (_didWarnStaleRegistries) return;
+
+            int configuredCount = CountConfiguredCatalogs();
+            int discoveredCount = DiscoverCatalogCountInProject();
+            if (configuredCount == discoveredCount) return;
+
+            _didWarnStaleRegistries = true;
+            Debug.LogWarning(
+                $"[UnlockManager] Configured unlock registries ({configuredCount}) do not match discovered catalogs ({discoveredCount}). Run ProxyCore/Unlockable Actions/Refresh Unlock Registries.",
+                this);
+        }
+
+        private int CountConfiguredCatalogs() {
+            if (_registries == null || _registries.Count == 0) return 0;
+
+            var uniqueInstanceIds = new HashSet<int>();
+            foreach (var entry in _registries) {
+                if (entry?.Registry is not IUnlockableCatalog) continue;
+                uniqueInstanceIds.Add(entry.Registry.GetInstanceID());
+            }
+
+            return uniqueInstanceIds.Count;
+        }
+
+        private static int DiscoverCatalogCountInProject() {
+            var uniqueInstanceIds = new HashSet<int>();
+            string[] guids = AssetDatabase.FindAssets("t:ScriptableObject");
+            foreach (string guid in guids) {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                var asset = AssetDatabase.LoadAssetAtPath<ScriptableObject>(path);
+                if (asset is IUnlockableCatalog)
+                    uniqueInstanceIds.Add(asset.GetInstanceID());
+            }
+
+            return uniqueInstanceIds.Count;
+        }
+#endif
 
         #endregion
 
