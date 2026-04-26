@@ -30,6 +30,9 @@ namespace ProxyCore {
         [Tooltip("Fired with a StringPayload(unlockKey) whenever any item transitions to locked.")]
         [SerializeField] private EventMessage _onLocked;
 
+        [Tooltip("Fired with a StringPayload(unlockKey) for each saved key removed because its definition now has SavesAcrossSessions = false.")]
+        [SerializeField] private EventMessage _onStalePurge;
+
         private HashSet<string> _savedUnlocked = new HashSet<string>();
         private HashSet<string> _sessionUnlocked = new HashSet<string>();
         // Keys that were explicitly locked via Lock() — overrides IsUnlockedByDefault.
@@ -70,6 +73,7 @@ namespace ProxyCore {
 #if UNITY_EDITOR
             ValidateRegistryConfigurationInEditor();
 #endif
+            PurgeStaleSavedKeys();
             EvaluateAutoTriggers();
         }
 
@@ -260,6 +264,40 @@ namespace ProxyCore {
         #endregion
 
         #region Public API — Reset
+
+        /// <summary>
+        /// Removes saved (cross-session) unlock keys for any definition in the configured registries
+        /// that now declares SavesAcrossSessions = false. Called automatically on startup after Load().
+        /// Safe to call manually at any time while the manager is active.
+        /// </summary>
+        public static void PurgeStaleSavedKeys() {
+            var inst = Instance;
+            if (inst == null) return;
+            if (inst._registries == null || inst._registries.Count == 0) return;
+
+            var sessionOnlyKeys = new HashSet<string>();
+            foreach (var entry in inst._registries) {
+                if (entry == null || !entry.Enabled || entry.Registry == null) continue;
+                var catalog = entry.Registry as IUnlockableCatalog;
+                if (catalog == null) continue;
+                foreach (var def in catalog.GetCatalogDefinitions()) {
+                    if (def is IUnlockable u && !u.SavesAcrossSessions)
+                        sessionOnlyKeys.Add(u.UnlockKey);
+                }
+            }
+
+            var purged = new List<string>();
+            foreach (var key in sessionOnlyKeys) {
+                if (inst._savedUnlocked.Remove(key))
+                    purged.Add(key);
+            }
+
+            if (purged.Count == 0) return;
+
+            inst.Save();
+            foreach (var key in purged)
+                inst.BroadcastStalePurge(key);
+        }
 
         /// <summary>
         /// Clears all saved (cross-session) unlock state and deletes the save file from disk.
@@ -475,6 +513,13 @@ namespace ProxyCore {
         private void BroadcastLocked(string key) {
             if (_onLocked == null) return;
             new EventTriggerBuilder(_onLocked)
+                .With(new StringPayload(key))
+                .Send();
+        }
+
+        private void BroadcastStalePurge(string key) {
+            if (_onStalePurge == null) return;
+            new EventTriggerBuilder(_onStalePurge)
                 .With(new StringPayload(key))
                 .Send();
         }
