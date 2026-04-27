@@ -1235,7 +1235,7 @@ namespace ProxyCore.Editor.Graph {
             return false;
         }
 
-        internal static void EnsureFolderExists(string folderPath) {
+        public static void EnsureFolderExists(string folderPath) {
             if (AssetDatabase.IsValidFolder(folderPath)) return;
 
             var parts = folderPath.Replace('\\', '/').Split('/');

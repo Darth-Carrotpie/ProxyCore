@@ -2,9 +2,6 @@ using System.Collections;
 using System.Collections.Generic;
 using ProxyCore;
 using UnityEngine;
-#if UNITY_EDITOR
-using ProxyCore.Editor;
-#endif
 
 /// <summary>
 /// Example showing how to trigger an event selected from a dropdown in the Inspector.

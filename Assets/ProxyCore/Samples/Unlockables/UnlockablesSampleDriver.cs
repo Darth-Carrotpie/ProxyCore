@@ -6,9 +6,9 @@ using UnityEngine;
 /// Sample driver for the ProxyCore Unlockables system.
 ///
 /// Attach to a GameObject in the UnlockablesSample scene.
-/// Wire up the inspector references, then hit Play and use the inspector
-/// buttons to exercise every code path. Results appear in the Console and
-/// in the read-only Last Result field below each group.
+/// Wire up the inspector references, then right-click the component header
+/// and choose a scenario from the context menu. Results appear in the Console
+/// and in the read-only Last Result field below each group.
 ///
 /// Covered scenarios:
 ///   1. Default-unlocked character   — IsUnlocked returns true with no Unlock() call
@@ -48,14 +48,14 @@ public class UnlockablesSampleDriver : MonoBehaviour {
     [Header("Characters")]
     [SerializeField, ProxyCore.ReadOnly] private string _characterResult;
 
-    [EditorCools.Button(name: "1. Is default-unlocked character available?")]
+    [ContextMenu("1. Is default-unlocked character available?")]
     private void Scenario1_DefaultUnlocked() {
         bool unlocked = _characterController.IsUnlocked(_defaultUnlockedCharacter);
         _characterResult = $"IsUnlocked = {unlocked}  (expected: True — no Unlock() needed)";
         Debug.Log($"[Unlockables] {_defaultUnlockedCharacter.name}: {_characterResult}");
     }
 
-    [EditorCools.Button(name: "2. Unlock persistent character")]
+    [ContextMenu("2. Unlock persistent character")]
     private void Scenario2_PersistentUnlock() {
         _characterController.Unlock(_persistentCharacter);
         bool unlocked = _characterController.IsUnlocked(_persistentCharacter);
@@ -64,7 +64,7 @@ public class UnlockablesSampleDriver : MonoBehaviour {
                   $"Save file: {System.IO.Path.Combine(Application.persistentDataPath, "unlocks.json")}");
     }
 
-    [EditorCools.Button(name: "3. Lock default-unlocked character (override)")]
+    [ContextMenu("3. Lock default-unlocked character (override)")]
     private void Scenario3_LockOverride() {
         bool before = _characterController.IsUnlocked(_defaultUnlockedCharacter);
         _characterController.Lock(_defaultUnlockedCharacter);
@@ -73,7 +73,7 @@ public class UnlockablesSampleDriver : MonoBehaviour {
         Debug.Log($"[Unlockables] Lock() override: {_characterResult}");
     }
 
-    [EditorCools.Button(name: "5. GetUnlockedCharacters()")]
+    [ContextMenu("5. GetUnlockedCharacters()")]
     private void Scenario5_UnlockedCharacters() {
         IReadOnlyList<CharacterDefinition> unlocked = _characterController.GetUnlockedCharacters();
         var sb = new System.Text.StringBuilder();
@@ -86,7 +86,7 @@ public class UnlockablesSampleDriver : MonoBehaviour {
         Debug.Log($"[Unlockables] GetUnlockedCharacters — {_characterResult}");
     }
 
-    [EditorCools.Button(name: "7. Bulk UnlockAll characters", space: 4f)]
+    [ContextMenu("7. Bulk UnlockAll characters")]
     private void Scenario7_BulkUnlock() {
         UnlockManager.UnlockAll(CharacterRegistry.Instance.GetAllDefinitions());
         int count = _characterController.GetUnlockedCharacters().Count;
@@ -99,7 +99,7 @@ public class UnlockablesSampleDriver : MonoBehaviour {
     [Header("Quests")]
     [SerializeField, ProxyCore.ReadOnly] private string _questResult;
 
-    [EditorCools.Button(name: "4. Unlock session quest (cleared on scene reload)")]
+    [ContextMenu("4. Unlock session quest (cleared on scene reload)")]
     private void Scenario4_SessionQuest() {
         _questController.Unlock(_sessionQuest);
         bool unlocked = _questController.IsUnlocked(_sessionQuest);
@@ -107,7 +107,7 @@ public class UnlockablesSampleDriver : MonoBehaviour {
         Debug.Log($"[Unlockables] {_sessionQuest.name}: {_questResult}");
     }
 
-    [EditorCools.Button(name: "6. GetVisibleQuests()")]
+    [ContextMenu("6. GetVisibleQuests()")]
     private void Scenario6_VisibleQuests() {
         IReadOnlyList<QuestDefinition> visible = _questController.GetVisibleQuests();
         var sb = new System.Text.StringBuilder();
@@ -125,7 +125,7 @@ public class UnlockablesSampleDriver : MonoBehaviour {
     [Header("Standalone (no registry)")]
     [SerializeField, ProxyCore.ReadOnly] private string _standaloneResult;
 
-    [EditorCools.Button(name: "8. Toggle StandaloneUnlockable")]
+    [ContextMenu("8. Toggle StandaloneUnlockable")]
     private void Scenario8_Standalone() {
         bool before = UnlockManager.IsUnlocked(_standaloneItem);
         if (before)
@@ -142,14 +142,14 @@ public class UnlockablesSampleDriver : MonoBehaviour {
     [Header("Reset")]
     [SerializeField, ProxyCore.ReadOnly] private string _resetResult;
 
-    [EditorCools.Button(name: "9. ResetSavedUnlocks() — wipes disk state", row: "reset-row")]
+    [ContextMenu("9. ResetSavedUnlocks() — wipes disk state")]
     private void Scenario9_ResetSaved() {
         UnlockManager.ResetSavedUnlocks();
         _resetResult = "Saved unlocks cleared. unlocks.json deleted.";
         Debug.Log($"[Unlockables] {_resetResult}");
     }
 
-    [EditorCools.Button(name: "10. ResetSessionUnlocks() — wipes memory", row: "reset-row")]
+    [ContextMenu("10. ResetSessionUnlocks() — wipes memory")]
     private void Scenario10_ResetSession() {
         UnlockManager.ResetSessionUnlocks();
         _resetResult = "Session unlocks and lock overrides cleared.";

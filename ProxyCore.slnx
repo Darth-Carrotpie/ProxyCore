@@ -12,10 +12,12 @@
   <Project Path="Unity.VisualStudio.Editor.csproj" />
   <Project Path="Unity.Rider.Editor.csproj" />
   <Project Path="Unity.InternalAPIEditorBridge.001.csproj" />
-  <Project Path="Assembly-CSharp.csproj" />
+  <Project Path="ProxyCore.Samples.Unlockables.csproj" />
   <Project Path="ScriptablePacker.csproj" />
   <Project Path="Unity.Burst.CodeGen.csproj" />
+  <Project Path="ProxyCore.Samples.Basic.csproj" />
   <Project Path="Unity.PerformanceTesting.csproj" />
+  <Project Path="Assembly-CSharp.csproj" />
   <Project Path="Unity.2D.Animation.Runtime.csproj" />
   <Project Path="ProxyCore.Editor.csproj" />
   <Project Path="Unity.2D.IK.Editor.csproj" />
@@ -29,5 +31,6 @@
   <Project Path="Unity.Collections.CodeGen.csproj" />
   <Project Path="Unity.Mathematics.Editor.csproj" />
   <Project Path="Unity.InputSystem.TestFramework.csproj" />
+  <Project Path="ProxyCore.Samples.Unlockables.Editor.csproj" />
   <Project Path="Unity.Collections.Editor.csproj" />
 </Solution>
