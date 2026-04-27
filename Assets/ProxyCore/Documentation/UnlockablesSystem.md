@@ -14,7 +14,7 @@ It supports two usage modes, a prerequisite / auto-unlock chain feature, and a n
 | Standalone item | `StandaloneUnlockable` | Plain C# `IUnlockable` (no ScriptableObject required) |
 | Prerequisite interface | `IHasPrerequisites` | Opt-in; exposes a condition list on a definition |
 | Condition base | `UnlockCondition` | Abstract SO; extend to create new condition types |
-| Built-in condition | `DefinitionUnlockedCondition` | Passes when another `IUnlockable` definition is unlocked |
+| Built-in condition | `DefinitionUnlockedCondition` | Passes when another `IUnlockable` definition is unlocked (checks `IsUnlocked`, including `IsUnlockedByDefault`) |
 | Built-in condition | `FlagCondition` | Passes when a named flag is set in a `GameFlagCollection` |
 | Auto-unlock trigger | `UnlockAutoTrigger` | SO registered on `UnlockManager`; auto-unlocks its target when prerequisites pass |
 | Flag collection | `GameFlagCollection` | Named boolean flags; pushing a flag re-evaluates all triggers |
@@ -35,6 +35,7 @@ public class CharacterDefinition : BaseDefinition, IUnlockable, IHasPrerequisite
     [SerializeField] private bool _isUnlockedByDefault = false;
     [SerializeField] private List<UnlockCondition> _prerequisites = new();
     [SerializeField] private ConditionMode _prerequisiteMode = ConditionMode.All;
+    [SerializeField] private bool _autoUnlock = true;
 
     string IUnlockable.UnlockKey         => $"{GetType().Name}:{ID}";
     bool IUnlockable.SavesAcrossSessions => _savesAcrossSessions;
@@ -43,6 +44,7 @@ public class CharacterDefinition : BaseDefinition, IUnlockable, IHasPrerequisite
 
     IReadOnlyList<UnlockCondition> IHasPrerequisites.Prerequisites  => _prerequisites.AsReadOnly();
     ConditionMode IHasPrerequisites.PrerequisiteMode                => _prerequisiteMode;
+    bool IHasPrerequisites.AutoUnlock                               => _autoUnlock;
 }
 ```
 
@@ -69,19 +71,20 @@ bool available = UnlockManager.Instance.IsUnlocked(item);
 
 ```csharp
 // Mutations
-UnlockManager.Instance.Unlock(item);         // unlock; saves if SavesAcrossSessions = true
-UnlockManager.Instance.Lock(item);           // explicit lock; overrides IsUnlockedByDefault
+UnlockManager.Unlock(item);         // unlock; saves if SavesAcrossSessions = true
+UnlockManager.Lock(item);           // explicit lock; overrides IsUnlockedByDefault
 // Queries
-UnlockManager.Instance.IsUnlocked(item);     // true if unlocked or IsUnlockedByDefault (and not overridden)
-UnlockManager.Instance.IsLocked(item);
+UnlockManager.IsUnlocked(item);     // true if unlocked OR IsUnlockedByDefault (and not overridden)
+UnlockManager.IsLocked(item);
+UnlockManager.IsUnlockedByKey(key); // true only if explicitly unlocked (saved or session); never true from IsUnlockedByDefault alone
 // Bulk
-UnlockManager.Instance.UnlockAll(items);     // single Save() pass for all persistent keys
-UnlockManager.Instance.LockAll(items);
+UnlockManager.UnlockAll(items);     // single Save() pass for all persistent keys
+UnlockManager.LockAll(items);
 // Reset
-UnlockManager.Instance.ResetSavedUnlocks();  // clears disk state (unlocks.json)
-UnlockManager.Instance.ResetSessionUnlocks();// clears in-memory (session + overrides)
+UnlockManager.ResetSavedUnlocks();  // clears disk state (unlocks.json)
+UnlockManager.ResetSessionUnlocks();// clears in-memory (session + overrides)
 // Auto-unlock
-UnlockManager.Instance.EvaluateAutoTriggers();// manually re-evaluate all registered triggers
+UnlockManager.EvaluateAutoTriggers();// manually re-evaluate all registered triggers
 ```
 
 ### Persistence
@@ -89,6 +92,14 @@ UnlockManager.Instance.EvaluateAutoTriggers();// manually re-evaluate all regist
 - `SavesAcrossSessions = true` → key written to `Application.persistentDataPath/unlocks.json`.
 - `SavesAcrossSessions = false` → key is session-only; cleared on every scene reload.
 - `IsUnlockedByDefault = true` → item is treated as unlocked without any explicit `Unlock()` call. An explicit `Lock()` overrides this.
+
+### IsUnlocked vs IsUnlockedByKey
+
+`IsUnlocked` returns `true` if the item was explicitly unlocked **or** if `IsUnlockedByDefault` is set (and not overridden).
+`IsUnlockedByKey` returns `true` only if the item was explicitly unlocked — it never reflects `IsUnlockedByDefault`.
+
+Use `IsUnlockedByKey` in custom `UnlockCondition.Evaluate()` implementations when the condition
+should represent a deliberate game action (e.g. quest completed), not a default-available state.
 
 ### Events
 
@@ -164,6 +175,11 @@ public class PlayerLevelCondition : UnlockCondition
 }
 ```
 
+When a custom condition is used as a direct edge in the Unlock Graph, pair it with a custom
+`IDefinitionEdgeStrategy` that declares ownership via `OwnsCondition`. This allows the graph to
+replace stale wrong-type conditions automatically when the pass mode changes. See
+`UnlockEdgeStrategyGuidelines.md` for the full strategy implementation guide.
+
 ---
 
 ## Editor Tooling
@@ -173,6 +189,7 @@ public class PlayerLevelCondition : UnlockCondition
 | `UnlockDebugWindow` | Scene View toolbar lock icon | Live view of saved / session unlock keys during Play Mode |
 | `ProxyCore > Unlockables > Clear Save Data` | Menu bar | Deletes `unlocks.json`; works in Edit and Play Mode |
 | `ProxyCore > Unlockables > Reset Session Unlocks` | Menu bar | Clears in-memory state; Play Mode only |
+| Condition Cleanup dialog | `ProxyCore > Unlock Graph > Condition Cleanup` | Lists Used, Mismatched, and Unused condition assets with bulk delete |
 
 ---
 
@@ -189,26 +206,41 @@ Runtime/Unlockables/
   IHasPrerequisites.cs
   UnlockAutoTrigger.cs
   Conditions/
-    UnlockCondition.cs           ← abstract base for custom conditions
-    DefinitionUnlockedCondition.cs
+    UnlockCondition.cs               ← abstract base for custom conditions
+    DefinitionUnlockedCondition.cs   ← passes when target IsUnlocked (includes IsUnlockedByDefault)
     FlagCondition.cs
 
 Runtime/Flags/
   GameFlagCollection.cs
 
 Editor/Class Editors/
-  FlagConditionEditor.cs         ← flag-name dropdown
+  FlagConditionEditor.cs             ← flag-name dropdown
 Editor/Global Actions/
-  UnlockablesActions.cs          ← menu items
+  UnlockablesActions.cs              ← menu items
 Editor/Editor Windows/
-  UnlockDebugWindow.cs           ← live debug window
-  ProxyCoreToolbarShortcuts.cs   ← toolbar button registration
+  UnlockDebugWindow.cs               ← live debug window
+  ProxyCoreToolbarShortcuts.cs       ← toolbar button registration
+Editor/Graph/UnlockDependencyGraph/
+  IDefinitionEdgeStrategy.cs         ← strategy interface (CanHandle, GetOrCreateCondition, GetDirectEdgeSource, OwnsCondition)
+  DefaultDefinitionEdgeStrategy.cs   ← fallback; creates DefinitionUnlockedCondition
+  DefinitionEdgeStrategyRegistry.cs  ← register/lookup; TryGetOwningStrategy for mismatch detection
+  ConditionCleanupDialog.cs          ← Used / Mismatched / Unused condition audit dialog
 
 Samples/Unlockables/
   Definitions/
-    CharacterDefinition.cs       ← IUnlockable + IHasPrerequisites example
-    QuestDefinition.cs           ← IUnlockable + IHasPrerequisites example
-  CharacterUnlockController.cs   ← MonoBehaviour helper (queues to registry singleton)
+    CharacterDefinition.cs           ← IUnlockable + IHasPrerequisites example
+    QuestDefinition.cs               ← IUnlockable + IHasPrerequisites example
+  Conditions/
+    QuestCompletedCondition.cs       ← sample UnlockCondition; evaluates via IsUnlockedByKey (not IsUnlocked)
+  Registries/
+    CharacterRegistry.cs
+    QuestRegistry.cs
+  CharacterUnlockController.cs       ← MonoBehaviour helper (queries registry singleton)
   QuestUnlockController.cs
-  UnlockablesSampleDriver.cs     ← EditorCools [Button] interactive test driver
+  UnlockablesSampleDriver.cs         ← [ContextMenu] interactive test driver
+  Editor/
+    CharacterDefinitionEdgeStrategy.cs ← sample strategy for CharacterDefinition
+    QuestDefinitionEdgeStrategy.cs     ← sample strategy for QuestDefinition; creates QuestCompletedCondition
+    CharacterRegistryEditor.cs
+    QuestRegistryEditor.cs
 ```
