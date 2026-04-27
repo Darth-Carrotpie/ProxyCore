@@ -83,6 +83,23 @@ namespace ProxyCore.Editor.Graph {
             return _fallback;
         }
 
+        public static bool TryGetOwningStrategy(UnlockCondition condition, out IDefinitionEdgeStrategy owningStrategy) {
+            owningStrategy = null;
+            if (condition == null) return false;
+
+            for (int i = _strategies.Count - 1; i >= 0; i--) {
+                try {
+                    if (_strategies[i].OwnsCondition(condition)) {
+                        owningStrategy = _strategies[i];
+                        return true;
+                    }
+                }
+                catch { }
+            }
+
+            return false;
+        }
+
         public static bool TryGetDirectEdgeSource(UnlockCondition condition, out BaseDefinition source) {
             source = null;
             if (condition == null) return false;

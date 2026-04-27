@@ -23,7 +23,7 @@ MonoBehaviour:
   - storyBeat: Jerry is being chased by Tom daily.
   - storyBeat: Jerry recently made friends with Bulldog.
   _lockedBehavior: 0
-  _savesAcrossSessions: 0
+  _savesAcrossSessions: 1
   _isUnlockedByDefault: 0
   _prerequisites:
   - {fileID: 11400000, guid: a4d6ff4b3dbf434419efc0faf1fdaf36, type: 2}

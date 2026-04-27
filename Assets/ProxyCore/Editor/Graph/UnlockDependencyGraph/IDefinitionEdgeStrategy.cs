@@ -10,5 +10,7 @@ namespace ProxyCore.Editor.Graph {
         string PassStateLabel { get; }
         UnlockCondition GetOrCreateCondition(BaseDefinition source, string conditionsFolder);
         BaseDefinition GetDirectEdgeSource(UnlockCondition condition);
+        /// <summary>Returns true if this strategy produced (and therefore owns) the given condition asset.</summary>
+        bool OwnsCondition(UnlockCondition condition);
     }
 }

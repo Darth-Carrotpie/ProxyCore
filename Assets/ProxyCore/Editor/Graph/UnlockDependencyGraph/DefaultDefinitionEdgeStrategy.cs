@@ -34,6 +34,8 @@ namespace ProxyCore.Editor.Graph {
             return condition;
         }
 
+        public bool OwnsCondition(UnlockCondition condition) => condition is DefinitionUnlockedCondition;
+
         public BaseDefinition GetDirectEdgeSource(UnlockCondition condition) {
             if (condition is not DefinitionUnlockedCondition duc) return null;
             var so = new SerializedObject(duc);

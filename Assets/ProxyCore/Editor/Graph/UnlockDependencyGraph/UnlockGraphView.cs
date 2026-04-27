@@ -256,10 +256,16 @@ namespace ProxyCore.Editor.Graph {
                 return;
             }
 
-            // Check if the target already has a prerequisite pointing at source
+            var strategy = ResolveStrategyForDefinition(source.GetType(), sourceGuid);
+
+            // Remove any stale conditions for this source that the selected strategy does not own.
+            // This handles the case where the user previously drew this edge with a different strategy
+            // (creating the wrong condition type) and is now redrawing it with the correct strategy.
+            ReplaceStaleDirectEdgeConditions(source, target, hasPrereqs, strategy);
+
+            // Check if the target already has a compatible prerequisite pointing at source
             if (HasDirectDependency(source, hasPrereqs)) return;
 
-            var strategy = ResolveStrategyForDefinition(source.GetType(), sourceGuid);
             var condition = strategy.GetOrCreateCondition(source, ConditionsPath);
             if (condition == null) {
                 Debug.LogWarning($"[UnlockGraph] Could not create condition for '{source.name}'.");
@@ -284,6 +290,42 @@ namespace ProxyCore.Editor.Graph {
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Removes conditions from <paramref name="target"/>'s prerequisites that point at
+        /// <paramref name="source"/> but are not owned by <paramref name="strategy"/>.
+        /// Called before creating a new condition so a strategy change replaces the old wrong-type asset.
+        /// </summary>
+        private void ReplaceStaleDirectEdgeConditions(
+            BaseDefinition source, BaseDefinition target,
+            IHasPrerequisites hasPrereqs, IDefinitionEdgeStrategy strategy) {
+
+            var prereqs = hasPrereqs.Prerequisites;
+            if (prereqs == null || prereqs.Count == 0) return;
+
+            bool anyRemoved = false;
+            for (int i = prereqs.Count - 1; i >= 0; i--) {
+                var cond = prereqs[i];
+                if (cond == null) continue;
+                if (!DefinitionEdgeStrategyRegistry.TryGetDirectEdgeSource(cond, out var condSource))
+                    continue;
+                if (condSource != source) continue;
+                if (strategy.OwnsCondition(cond)) continue;
+
+                // Found a wrong-type condition for this source — remove it.
+                RemoveConditionFromDefinition(cond, target);
+                if (!IsConditionReferenced(cond)) {
+                    string condPath = AssetDatabase.GetAssetPath(cond);
+                    if (!string.IsNullOrEmpty(condPath))
+                        AssetDatabase.DeleteAsset(condPath);
+                }
+
+                anyRemoved = true;
+            }
+
+            if (anyRemoved)
+                AssetDatabase.SaveAssets();
         }
 
         private void AddConditionToDefinition(UnlockCondition condition, BaseDefinition target) {

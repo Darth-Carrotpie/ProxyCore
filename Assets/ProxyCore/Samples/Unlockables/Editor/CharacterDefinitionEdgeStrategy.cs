@@ -27,6 +27,8 @@ namespace ProxyCore.Editor.Graph {
 
         public string PassStateLabel => "Purchased";
 
+        public bool OwnsCondition(UnlockCondition condition) => _defaultStrategy.OwnsCondition(condition);
+
         public UnlockCondition GetOrCreateCondition(BaseDefinition source, string conditionsFolder) {
             return _defaultStrategy.GetOrCreateCondition(source, conditionsFolder);
         }
