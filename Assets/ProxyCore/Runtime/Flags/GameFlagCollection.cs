@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 
 namespace ProxyCore {
@@ -10,7 +11,8 @@ namespace ProxyCore {
     /// (e.g. "Global Game State", "Achievement Flags", "Tutorial Flags")
     /// to keep concerns separated.
     ///
-    /// Flag state is session-only and resets on every application launch.
+    /// Flag state defaults to session-only and resets on every application launch.
+    /// Enable _savesAcrossSessions to write flag state to disk and restore it on next launch.
     /// When _autoEvaluateOnSet is enabled, changing any flag automatically
     /// re-evaluates all UnlockAutoTriggers on the UnlockManager.
     ///
@@ -34,12 +36,19 @@ namespace ProxyCore {
         [Tooltip("When true, calling SetFlag() automatically re-evaluates all UnlockAutoTriggers on the UnlockManager, making flag changes immediately propagate to unlock chains.")]
         [SerializeField] private bool _autoEvaluateOnSet = true;
 
+        [Header("Persistence")]
+        [Tooltip("When true, flag state is written to disk and restored across game sessions. Each collection saves to its own file named after this asset. Renaming the asset changes the save file path.")]
+        [SerializeField] private bool _savesAcrossSessions = false;
+
         private Dictionary<string, bool> _state;
 
         // Lazy init — ensures fresh state after domain reloads without requiring OnEnable overhead.
         private Dictionary<string, bool> State => _state ?? (_state = new Dictionary<string, bool>());
 
-        private void OnEnable() => _state = new Dictionary<string, bool>();
+        private void OnEnable() {
+            _state = new Dictionary<string, bool>();
+            if (_savesAcrossSessions) Load();
+        }
 
         // ------------------------------------------------------------------ //
         //  Public API                                                          //
@@ -47,6 +56,9 @@ namespace ProxyCore {
 
         /// <summary>All declared flag names. Use to populate dropdowns or validate keys.</summary>
         public IReadOnlyList<string> DefinedFlags => _definedFlags.AsReadOnly();
+
+        /// <summary>When true, flag state is written to disk and restored across game sessions.</summary>
+        public bool SavesAcrossSessions => _savesAcrossSessions;
 
         /// <summary>
         /// Sets a flag to the given value.
@@ -59,6 +71,8 @@ namespace ProxyCore {
             }
 
             State[flagName] = value;
+
+            if (_savesAcrossSessions) Save();
 
             if (_onFlagChanged != null)
                 new EventTriggerBuilder(_onFlagChanged).With(new StringPayload(flagName)).Send();
@@ -81,5 +95,34 @@ namespace ProxyCore {
         /// Used by FlagConditionEditor to populate its dropdown.
         /// </summary>
         public string[] GetDefinedFlagsArray() => _definedFlags.ToArray();
+
+        /// <summary>Clears in-memory flag state and deletes the save file for this collection.</summary>
+        public void ResetSavedFlags() {
+            _state = new Dictionary<string, bool>();
+            if (File.Exists(SavePath)) File.Delete(SavePath);
+        }
+
+        // ------------------------------------------------------------------ //
+        //  Persistence                                                         //
+        // ------------------------------------------------------------------ //
+
+        private string SavePath =>
+            Path.Combine(Application.persistentDataPath, $"flags_{name}.json");
+
+        private void Save() {
+            var data = new FlagSaveData();
+            foreach (var kv in State)
+                if (kv.Value) data.setFlagNames.Add(kv.Key);
+            File.WriteAllText(SavePath, JsonUtility.ToJson(data, prettyPrint: true));
+        }
+
+        private void Load() {
+            if (!File.Exists(SavePath)) return;
+            var data = JsonUtility.FromJson<FlagSaveData>(File.ReadAllText(SavePath));
+            if (data?.setFlagNames == null) return;
+            foreach (var flagName in data.setFlagNames)
+                if (_definedFlags.Contains(flagName))
+                    _state[flagName] = true;
+        }
     }
 }
