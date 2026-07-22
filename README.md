@@ -20,7 +20,13 @@ that teaches an LLM coding agent how to use ProxyCore correctly (the event syste
 definition-registries, and unlockables) — including the idioms that differ from
 generic Unity code. It's portable: copy the folder into any project.
 
-**Install into a project (Claude Code / Cursor / etc.):**
+**Install into a project — one click (recommended):**
+- In the Unity Editor, run **ProxyCore ▸ Install Agent Skill**. It copies the bundled
+  skill into your project and detects your agent tooling — Claude Code (full skill →
+  `.claude/skills/proxycore/`), plus a pointer instruction for GitHub Copilot / OpenAI
+  Codex when those are detected.
+
+**Install manually:**
 - Copy `.claude/skills/proxycore/` into your project's `.claude/skills/` folder, or
   into `~/.claude/skills/` to make it available in every project on your machine.
 - That's it — the agent auto-discovers it and loads it when you work with ProxyCore.
