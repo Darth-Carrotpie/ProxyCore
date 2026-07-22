@@ -10,8 +10,25 @@ If you are not familiar with messaging design patterns, check out [this Unity tu
 
 ### Install: Manual
 - Open Unity Package Manager > Plus > Instal package from git URL
-- Paste the URL: https://github.com/Darth-Carrotpie/ProxyCore.git#2.0.0
+- Paste the URL: https://github.com/Darth-Carrotpie/ProxyCore.git#2.2.10
 - Replace the tag with newest version, see releases
+
+## AI Agent Skill
+
+This repo ships a self-contained **Claude Skill** at [`.claude/skills/proxycore/`](.claude/skills/proxycore/)
+that teaches an LLM coding agent how to use ProxyCore correctly (the event system,
+definition-registries, and unlockables) — including the idioms that differ from
+generic Unity code. It's portable: copy the folder into any project.
+
+**Install into a project (Claude Code / Cursor / etc.):**
+- Copy `.claude/skills/proxycore/` into your project's `.claude/skills/` folder, or
+  into `~/.claude/skills/` to make it available in every project on your machine.
+- That's it — the agent auto-discovers it and loads it when you work with ProxyCore.
+
+**Use with any other LLM:** the skill is plain Markdown. Point the model at
+[`.claude/skills/proxycore/SKILL.md`](.claude/skills/proxycore/SKILL.md) (it links to
+the per-subsystem reference files under `references/`), or paste `SKILL.md` into
+context. No tooling or plugins required.
 
 ## Core Concepts
 

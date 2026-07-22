@@ -1,0 +1,6 @@
+{
+  "enabledPlugins": {
+    "cc-skills@samber": true,
+    "skill-creator@claude-plugins-official": true
+  }
+}
