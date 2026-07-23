@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6cbb4278898a3274d89395e7e0344ac9, type: 3}
+  m_Name: UnlockManager
+  m_EditorClassIdentifier: ProxyCore::ProxyCore.UnlockManager
+  _persistent: 0
+  _onUnlocked: {fileID: 11400000, guid: 0e5b5bf46600d2f4fb34c47a25944d6f, type: 2}
+  _onLocked: {fileID: 11400000, guid: 9a33d30b1d7352d4c94c504925265fb8, type: 2}
+  _onStalePurge: {fileID: 0}
+  _registries:
+  - Registry: {fileID: 11400000, guid: 49f565f002f7ef44ba6e54c02c81575f, type: 2}
+    Enabled: 1
+  - Registry: {fileID: 11400000, guid: c5e887e9c2d20b146a85811757943d26, type: 2}
+    Enabled: 1
+  - Registry: {fileID: 11400000, guid: 0fcc033106171b24e9e032fda7395fd9, type: 2}
+    Enabled: 1
+  - Registry: {fileID: 11400000, guid: 3803158054acb7c4d938c258977a1032, type: 2}
+    Enabled: 1
