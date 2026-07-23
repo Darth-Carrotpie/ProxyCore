@@ -13,6 +13,15 @@ If you are not familiar with messaging design patterns, check out [this Unity tu
 - Paste the URL: https://github.com/Darth-Carrotpie/ProxyCore.git#2.2.10
 - Replace the tag with newest version, see releases
 
+### Updating
+Because ProxyCore is installed from a tag-pinned git URL, Unity's Package Manager can't
+offer an "Update" for it on its own. Instead:
+- Run **ProxyCore ▸ Update ProxyCore Package** from the menu, **or** open
+  **Window ▸ Package Manager**, select ProxyCore, and click **Check for Updates** in the
+  details panel.
+- It checks the latest GitHub release and, if newer than what's installed, re-resolves the
+  package to that tag for you (a domain reload will occur).
+
 ## AI Agent Skill
 
 This repo ships a self-contained **Claude Skill** at [`.claude/skills/proxycore/`](.claude/skills/proxycore/)
