@@ -28,13 +28,21 @@ namespace ProxyCore.Editor
         public const string PackageName = "com.shakotis.proxycore";
         private const string RepoSlug = "Darth-Carrotpie/ProxyCore";
         private const string GitUrl = "https://github.com/Darth-Carrotpie/ProxyCore.git";
-        private const string LatestReleaseApi = "https://api.github.com/repos/" + RepoSlug + "/releases/latest";
+        // ProxyCore publishes plain git tags, not GitHub "Releases", so releases/latest 404s.
+        // Read the tags list and pick the highest semver ourselves.
+        private const string TagsApi = "https://api.github.com/repos/" + RepoSlug + "/tags?per_page=100";
         private const string DialogTitle = "ProxyCore — Update Package";
 
         [Serializable]
-        private struct ReleaseInfo
+        private struct TagInfo
         {
-            public string tag_name;
+            public string name;
+        }
+
+        [Serializable]
+        private struct TagList
+        {
+            public TagInfo[] items;
         }
 
         [MenuItem("ProxyCore/Update ProxyCore Package")]
@@ -93,7 +101,7 @@ namespace ProxyCore.Editor
                 {
                     EditorUtility.ClearProgressBar();
                     EditorUtility.DisplayDialog(DialogTitle,
-                        "Could not check for the latest ProxyCore release.\n\n" + message +
+                        "Could not check for the latest ProxyCore version.\n\n" + message +
                         "\n\nGitHub's unauthenticated API is rate-limited (60 requests/hour); " +
                         "if you've checked several times recently, wait a bit and retry.", "OK");
                 });
@@ -160,10 +168,13 @@ namespace ProxyCore.Editor
         private static PackageInfo FindPackage() =>
             PackageInfo.FindForAssembly(typeof(UpdateProxyCorePackage).Assembly);
 
-        /// <summary>Async GET of the latest release tag; callbacks run on the main thread.</summary>
+        /// <summary>
+        /// Async GET of the repo's tags; selects and returns the highest-semver tag.
+        /// Callbacks run on the main thread.
+        /// </summary>
         private static void FetchLatestTag(Action<string> onSuccess, Action<string> onError)
         {
-            var www = UnityWebRequest.Get(LatestReleaseApi);
+            var www = UnityWebRequest.Get(TagsApi);
             www.SetRequestHeader("User-Agent", "ProxyCore-UnityEditor");
             www.SetRequestHeader("Accept", "application/vnd.github+json");
 
@@ -178,27 +189,73 @@ namespace ProxyCore.Editor
                         return;
                     }
 
-                    ReleaseInfo info;
-                    try
-                    {
-                        info = JsonUtility.FromJson<ReleaseInfo>(www.downloadHandler.text);
-                    }
-                    catch (Exception ex)
-                    {
-                        onError("Could not parse the GitHub API response: " + ex.Message);
-                        return;
-                    }
-
-                    if (string.IsNullOrEmpty(info.tag_name))
-                        onError("The latest release has no tag name.");
+                    string latest = SelectHighestTag(www.downloadHandler.text, out string parseError);
+                    if (latest == null)
+                        onError(parseError);
                     else
-                        onSuccess(info.tag_name);
+                        onSuccess(latest);
                 }
                 finally
                 {
                     www.Dispose();
                 }
             };
+        }
+
+        /// <summary>
+        /// Parses the GitHub tags array and returns the raw name of the highest-semver tag,
+        /// or null (with <paramref name="error"/> set) if the response is unusable.
+        /// </summary>
+        private static string SelectHighestTag(string json, out string error)
+        {
+            error = null;
+
+            TagInfo[] tags;
+            try
+            {
+                // JsonUtility can't deserialize a top-level array, so wrap it.
+                tags = JsonUtility.FromJson<TagList>("{\"items\":" + json + "}").items;
+            }
+            catch (Exception ex)
+            {
+                error = "Could not parse the GitHub API response: " + ex.Message;
+                return null;
+            }
+
+            if (tags == null || tags.Length == 0)
+            {
+                error = "No tags were found in the ProxyCore repository.";
+                return null;
+            }
+
+            string bestName = null;
+            Version bestVersion = null;
+
+            foreach (var tag in tags)
+            {
+                if (string.IsNullOrEmpty(tag.name)) continue;
+
+                Version v = ParseVersion(tag.name);
+                if (v == null) continue; // ignore non-semver tags
+
+                if (bestVersion == null || v > bestVersion)
+                {
+                    bestVersion = v;
+                    bestName = tag.name;
+                }
+            }
+
+            // No tag parsed as a version — fall back to the first (GitHub lists newest first).
+            if (bestName == null)
+                bestName = tags[0].name;
+
+            if (string.IsNullOrEmpty(bestName))
+            {
+                error = "No usable tag name was found in the ProxyCore repository.";
+                return null;
+            }
+
+            return bestName;
         }
 
         /// <summary>Strips a leading 'v' and parses to <see cref="System.Version"/>; null on failure.</summary>
