@@ -22,8 +22,12 @@ task touches exactly one of them — read the matching reference file, not all t
 | You are… | Read |
 |---|---|
 | triggering/listening to events, writing a `*Payload`, adding a category, regenerating accessors | `references/events.md` |
-| creating a `*Definition` (data asset) or a `*Registry`/catalog that looks them up | `references/definitions-and-registries.md` |
+| creating a `*Definition` (data asset) or a `*Registry`/catalog that looks them up — a general pattern for any family of entities (resources, NPCs, world events…) | `references/definitions-and-registries.md` |
 | locking/unlocking content, prerequisites/auto-unlock chains, flags, unlock conditions | `references/unlockables.md` |
+
+For unlockables, split the work: **you implement** the plumbing (IUnlockable, conditions,
+runtime unlock calls); the **designer connects the actual unlock chains** in the visual
+Unlock Dependency Graph. Don't fabricate the progression tree — see `references/unlockables.md`.
 
 The rules below are cross-cutting and apply no matter which subsystem you touch.
 Read them before writing any ProxyCore code.
@@ -125,6 +129,14 @@ are **generated code**. They exist only after an `EventMessage` asset with that
 short name and category exists and accessors have been generated (menu
 **ProxyCore ▸ Regenerate Event Accessors**). If an accessor doesn't resolve, the
 asset or the regeneration step is missing — see `references/events.md`.
+
+Two things to internalize before writing event code (details in `references/events.md`):
+- **Reuse and compose payloads.** Don't make one payload type per event — payloads are
+  generic, shape-named data carriers (`TileCoordPayload`, `AmountPayload`) shared across
+  many events and composed per event with `.With(a).With(b).With(c)`.
+- **Dispatch is synchronous and same-frame.** `.Send()` runs every listener inline, and
+  a chained cascade `A → B → C` all resolves in one frame — many listeners or deep
+  chains can spike frame time. Keep handlers cheap; defer heavy work.
 
 ## Utility extensions
 

@@ -10,7 +10,10 @@ static accessors.
 - [Triggering events](#triggering-events)
 - [Listening to events](#listening-to-events)
 - [Reading payloads](#reading-payloads)
+- [Payload design: reuse and compose](#payload-design-reuse-and-compose)
 - [Writing a payload](#writing-a-payload)
+- [Chaining and ordering events](#chaining-and-ordering-events)
+- [Danger zone: dispatch is synchronous and same-frame](#danger-zone-dispatch-is-synchronous-and-same-frame)
 - [Events, categories, and generating accessors](#events-categories-and-generating-accessors)
 - [Validation and debugging](#validation-and-debugging)
 - [Common mistakes](#common-mistakes)
@@ -37,9 +40,11 @@ static accessors.
 using ProxyCore;
 using ProxyCore.Generated;
 
-// One or more payloads, then Send():
+// Compose several payloads with chained .With(...), then Send():
 TriggerEvent.GameWorld.CellPlaced
-    .With(new CellPlacedPayload(x, y, symbol, nextTurnId))
+    .With(new TileCoordPayload(x, y))
+    .With(new SymbolPayload(symbol))
+    .With(new TurnPayload(nextTurnId))
     .Send();
 
 // No payload:
@@ -51,8 +56,10 @@ TriggerEvent.GameWorld.MineTriggered
     .Send();
 ```
 
-`.With(...)` returns the builder so calls chain. `.Send()` dispatches immediately and
-releases the data back to the pool.
+`.With(...)` returns the builder, so **chain as many payloads as the event needs** —
+`.With(a).With(b).With(c)`. Each payload is stored by its concrete type (one instance
+per type per event; a second `.With()` of the same type replaces the first). `.Send()`
+dispatches immediately and releases the data back to the pool.
 
 **`using` auto-send** — for conditional payloads, the builder is `IDisposable` and
 sends on dispose:
@@ -79,7 +86,7 @@ void OnEnable()
     _placedSub = ListenEvent.GameWorld.CellPlaced.Do(OnCellPlaced);
     _turnSub   = ListenEvent.GameWorld.TurnStarted.Do(data =>
     {
-        var p = data.TryGet<TurnStartedPayload>();
+        var p = data.TryGet<TurnPayload>();
         if (p != null) _isMyTurn = p.IsMyTurn;
     });
 }
@@ -92,30 +99,71 @@ void OnDisable()
 
 void OnCellPlaced(EventMessageData data)
 {
-    var p = data.TryGet<CellPlacedPayload>();
-    if (p == null) return;
-    Render(p.X, p.Y, p.Symbol);
+    var coord = data.TryGet<TileCoordPayload>();
+    if (coord == null) return;
+    Render(coord.X, coord.Y, data.TryGet<SymbolPayload>()?.value);
 }
 ```
 
 ## Reading payloads
 
-`EventMessageData` holds at most **one payload per concrete type**. Retrieve by type:
+`EventMessageData` holds at most **one payload per concrete type**. Retrieve each by
+type — a listener reads only the payloads it cares about and ignores the rest:
 
 ```csharp
-var dmg = data.TryGet<FloatPayload>();   // returns the payload or null
-if (dmg != null) health -= dmg.value;    // single-value payloads expose `.value`
+var coord = data.TryGet<TileCoordPayload>();   // returns the payload or null
+if (coord != null) MoveCursor(coord.X, coord.Y);
 
-float amount = data.Get<FloatPayload>().value;   // throws if the payload is absent
-bool has     = data.Has<StringPayload>();
+var amount = data.TryGet<FloatPayload>();       // single-value payloads expose `.value`
+if (amount != null) health -= amount.value;
+
+float f  = data.Get<FloatPayload>().value;      // throws if the payload is absent
+bool has = data.Has<SymbolPayload>();
 ```
 
 Prefer `TryGet<T>()` + null check for anything optional; reserve `Get<T>()` for
 payloads guaranteed present by the event's contract.
 
+## Payload design: reuse and compose
+
+**Do not create one payload type per event.** Payloads are generic, reusable data
+carriers — name them by the **shape of the data**, not by the event, and share them
+across every event that needs that shape. Model each event's data as a *composition*
+of a few reusable payloads rather than one bespoke struct.
+
+- A `TileCoordPayload` (an `(x, y)`, plus optional `Range`/`CasterID`) serves
+  `MineTriggered`, `ExplosionTriggered`, `HighlightMoved`, targeting, AOE, aim, …
+- A `TileCoordsPayload` (a coord array) serves `CellsRevealed`, `CellsRemoved`,
+  `CellsHidden`, `ReachCellsUpdated`, …
+- An `AmountPayload` / `IntPayload` / `StringPayload` / a definition-reference payload
+  are each reused everywhere their shape fits.
+
+So a `TargetCoordinate`-style payload is used by `TargetingEvent`, `AimEvent`,
+`AOEEvent`, etc., **in tandem with additional payloads** that carry the parts specific
+to each event:
+
+```csharp
+// Same coordinate payload, different companions per event:
+TriggerEvent.Combat.Aim
+    .With(new TileCoordPayload(tx, ty))
+    .With(new CasterPayload(casterId))
+    .Send();
+
+TriggerEvent.Combat.AreaOfEffect
+    .With(new TileCoordPayload(tx, ty) { Range = radius })
+    .With(new DamagePayload(damage))
+    .Send();
+```
+
+Benefits: fewer types to maintain, listeners that already understand a shape work
+across many events, and each event's payload set reads as a clear list of facts.
+Reserve a bespoke multi-field payload only for a genuinely unique bundle that will
+never be reused.
+
 ## Writing a payload
 
-Payloads implement `IEventMessagePayload`. There are two idioms — pick by shape.
+Payloads implement `IEventMessagePayload`. Two idioms — pick by shape, and favour the
+smallest reusable shape (see above).
 
 **Single value** → extend `EventMessagePayload<T>`. You get `.value`, `Reset()`,
 `GetValue()`, `ValueType` for free; add a ctor and a fluent `With`:
@@ -125,38 +173,35 @@ using System;
 using ProxyCore;
 
 [Serializable]
-public class Vector3Payload : EventMessagePayload<UnityEngine.Vector3>
+public class AmountPayload : EventMessagePayload<int>
 {
-    public Vector3Payload() { }                         // parameterless ctor required
-    public Vector3Payload(UnityEngine.Vector3 v) => SetValue(v);
-    public Vector3Payload With(UnityEngine.Vector3 v) { SetValue(v); return this; }
+    public AmountPayload() { }                          // parameterless ctor required
+    public AmountPayload(int v) => SetValue(v);
+    public AmountPayload With(int v) { SetValue(v); return this; }
 }
-// read back with: data.TryGet<Vector3Payload>()?.value
+// read back with: data.TryGet<AmountPayload>()?.value
 ```
 
-**Multiple fields** → extend `EventMessagePayloadBase` directly, expose public fields,
-and override `Reset()`, `GetValue()`, `ValueType`. Set `_isSet = true` in the ctor:
+**A small fixed bundle** (e.g. a coordinate) → extend `EventMessagePayloadBase`,
+expose public fields, override `Reset()`, `GetValue()`, `ValueType`, and add optional
+fields that callers set via object-initializer so the type stays reusable:
 
 ```csharp
 using System;
 using ProxyCore;
 
 [Serializable]
-public class CellPlacedPayload : EventMessagePayloadBase
+public class TileCoordPayload : EventMessagePayloadBase
 {
-    public int    X, Y;
-    public string Symbol;
-    public string NextTurnID;
+    public int X, Y;
+    public int    Range;      // optional extras — set via { Range = r } when relevant
+    public string CasterID;
 
-    public CellPlacedPayload(int x, int y, string symbol, string nextTurnID)
-    {
-        X = x; Y = y; Symbol = symbol; NextTurnID = nextTurnID;
-        _isSet = true;
-    }
+    public TileCoordPayload(int x, int y) { X = x; Y = y; _isSet = true; }
 
-    public override void   Reset()    { X = 0; Y = 0; Symbol = null; NextTurnID = null; _isSet = false; }
-    public override object GetValue() => Symbol;                 // most representative field
-    public override Type   ValueType  => typeof(string);
+    public override void   Reset()    { X = 0; Y = 0; Range = 0; CasterID = null; _isSet = false; }
+    public override object GetValue() => (X, Y);
+    public override Type   ValueType  => typeof((int, int));
 }
 ```
 
@@ -167,8 +212,76 @@ Notes:
 - `[Serializable]` lets the payload appear in the `EventMessage` inspector's
   "Expected Payloads" list. If a newly added payload type doesn't show up there, run
   **ProxyCore ▸ Refresh Payload Types**.
-- Optional extra fields can be public and set via object-initializer at the call site
-  (`new TileCoordPayload(x, y) { Range = r }`).
+
+## Chaining and ordering events
+
+Two distinct needs: ordering listeners *within* one event, and sequencing one event
+*after* another.
+
+**Ordering within one event.** Main listeners fire in subscription order. To run a
+handler **after all main listeners** of an event, register it as an *attachment* with
+`EventCoordinator.Attach`. `Attach`/`Detach`/`TriggerEventInternal` take the
+`EventMessage` asset (the generated accessors don't expose attach), so hold a
+serialized reference:
+
+```csharp
+[SerializeField] private EventMessage _primaryEvent;
+
+void OnEnable()  => EventCoordinator.Attach(_primaryEvent, OnAfterPrimary);
+void OnDisable() => EventCoordinator.Detach(_primaryEvent, OnAfterPrimary);
+
+void OnAfterPrimary(EventMessageData data) { /* runs after every normal listener */ }
+```
+
+**Sequencing event B after event A.** Trigger B from inside a listener (or an
+attachment) of A. Because dispatch is synchronous (see below), B fully completes
+before A's `.Send()` returns — the ordering is guaranteed:
+
+```csharp
+_hitSub = ListenEvent.Combat.Hit.Do(data =>
+{
+    ApplyDamage(data);
+    // "…Happened" follow-up, guaranteed after Hit's own handling:
+    TriggerEvent.Combat.Damaged
+        .With(new TileCoordPayload(x, y))
+        .With(new DamagePayload(dmg))
+        .Send();
+});
+```
+
+Give the follow-up event its **own** freshly-built payloads with `.With(new …)`. Do
+**not** forward the incoming `data` into a nested trigger — it is pooled and released
+when its dispatch ends, so reusing it across events invites use-after-release bugs.
+
+Sequential fan-out from a single source (e.g. a network message handler that fires
+`Matched`, then `HPUpdated`, then `TurnStarted` in order) is the same pattern: just
+`.Send()` them in the order you need within one method.
+
+## Danger zone: dispatch is synchronous and same-frame
+
+Event dispatch is **fully synchronous**. `.Send()` invokes every listener inline and
+returns only after the last one finishes — there is no queue and no next-frame
+deferral. Triggering another event inside a listener nests on the same call stack, so
+a chain `A → B → C` runs **all** listeners of A, B and C before the original `.Send()`
+returns. **The entire chain is consumed in one frame.**
+
+This concentrates cost into a single frame and can cause a visible frame-time spike /
+hitch when:
+- a hot event has **many listeners**, or
+- a **deep or wide chain** cascades many events from one trigger, or
+- an event is triggered **at high frequency** (per-frame ticks, tight loops).
+
+Guidance:
+- Keep listener bodies cheap and allocation-free; move heavy work (spawning,
+  pathfinding, IO) **off the dispatch** — schedule it for the next frame (coroutine /
+  `UniTask` / job) instead of doing it inline.
+- Don't trigger high-fan-out events every frame; coalesce or throttle.
+- Watch for **feedback loops** (A triggers B triggers A). ProxyCore's event dispatch
+  has no built-in re-entrancy guard (unlike `UnlockManager.EvaluateAutoTriggers`), so a
+  cycle will recurse until the stack blows. Break cycles with a guard flag or by
+  deferring the re-trigger.
+- On genuinely hot events, tick **Mute Debug Log** and **Skip Payload Validation** to
+  trim per-dispatch overhead.
 
 ## Events, categories, and generating accessors
 
@@ -204,10 +317,16 @@ missing, it has **no category**, or accessors were not regenerated.
 
 ## Common mistakes
 
+- Creating a new payload type per event instead of reusing shape-named payloads and
+  composing several with `.With().With()`.
 - Using `TryGet<T>(out var x)` — the method **returns** the payload (or null), it has
   no out-parameter.
 - Reading `.Value` (capital V) — single-value payloads expose `.value`.
+- Forwarding a listener's `data` into a nested trigger — it's pooled and released;
+  build fresh payloads for the follow-up event.
 - Forgetting to dispose a subscription in `OnDisable` — leaks listeners across scenes.
+- Triggering a high-fan-out or chained event every frame — the whole cascade runs in
+  one frame and spikes frame time.
 - Expecting an accessor before regenerating, or for an event with no category.
 - Placing the `EventCoordinator` asset outside a `Resources/` folder — `Instance` is
   null in a build and nothing dispatches.

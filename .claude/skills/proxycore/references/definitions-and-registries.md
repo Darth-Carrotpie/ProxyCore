@@ -7,12 +7,38 @@ thin static wrapper you add when you want to look definitions up by a domain key
 (e.g. a server string).
 
 ## Contents
+- [A general pattern, not just for events/unlocks](#a-general-pattern-not-just-for-eventsunlocks)
 - [Definitions](#definitions)
 - [Registries](#registries)
 - [Accessing a registry at runtime](#accessing-a-registry-at-runtime)
 - [Catalog wrappers (key → definition)](#catalog-wrappers-key--definition)
 - [Refreshing the definition list](#refreshing-the-definition-list)
 - [Common mistakes](#common-mistakes)
+
+## A general pattern, not just for events/unlocks
+
+The Definition + Registry pair is a **general-purpose data-driven pattern** — reach for
+it any time the game has a *family* of similar authored entities. It's the same shape
+ProxyCore itself uses internally (`EventMessage` + `EventCoordinator`) and that the
+unlockables system consumes, but you should apply it to your own domains too.
+
+The division of roles:
+- **`*Definition` = the authoring/creator side.** One asset per entity, holding its
+  designer-tunable data. Designers create and edit these; each gets a stable `ID`.
+- **`*Registry` = the central runtime handler.** A single singleton that owns the whole
+  set, is the one place to look them up, and is a natural home for cross-cutting
+  operations over the family.
+
+Typical applications:
+- **Resources** — `ResourceDefinition` (name, icon, cap, rules) + `ResourceRegistry`
+  as the central resource handler / lookup.
+- **World events** — `WorldEventDefinition` + `WorldEventRegistry`.
+- **NPCs / characters** — `NPC_CharacterDefinition` + `NPC_CharacterRegistry`.
+- Items, abilities, biomes, factions, quests, upgrades — anything with many variants.
+
+Wherever you have "there are many X in the game and something needs to own/look them
+up," a registry is the central handler and the definition is the creator. The rest of
+this file is how to build that pair.
 
 ## Definitions
 

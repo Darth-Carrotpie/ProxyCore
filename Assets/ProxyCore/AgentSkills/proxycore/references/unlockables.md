@@ -5,6 +5,28 @@ by a single `UnlockManager`. Anything implementing `IUnlockable` participates. S
 optionally persisted to disk or session-only, and items can auto-unlock when
 prerequisite conditions pass.
 
+## Who owns what: AI vs Designer
+
+The Unlock subsystem has two halves — keep them separate.
+
+- **Implementation — AI-driven (this is your job).** Writing the code: implementing
+  `IUnlockable` / `IHasPrerequisites` on definitions, authoring custom `UnlockCondition`
+  types, calling `Unlock`/`Lock`/`IsUnlocked` at the right gameplay moments, wiring
+  `EventMessage` reactions, `GameFlagCollection` flags, and (for custom conditions)
+  the editor `IDefinitionEdgeStrategy`. Build all of this plumbing so the content is
+  *capable* of being unlocked and the runtime behaves correctly.
+- **Connecting the chains — Designer-driven (not you).** Deciding *what unlocks what*
+  and wiring those prerequisite/dependency edges together lives in the visual **Unlock
+  Dependency Graph** (`ProxyCore ▸ Unlock Dependency Graph`). That progression design
+  is a human/designer task. Do **not** try to fabricate graph layouts, invent the
+  progression tree, or hand-author the graph's edge/condition assets from code unless
+  explicitly asked — expose the capability and let the designer connect it in the graph.
+
+Rule of thumb: **you make things unlockable and make unlocking work; the designer
+decides the unlock order in the graph.** When a task is "gate X behind Y", implement
+both `X` (IUnlockable) and `Y` (a condition) and mention that the actual X→Y edge is
+connected in the Unlock Graph.
+
 ## Contents
 - [Making something unlockable](#making-something-unlockable)
 - [UnlockManager API](#unlockmanager-api)
