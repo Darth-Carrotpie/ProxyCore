@@ -105,6 +105,19 @@ void OnCellPlaced(EventMessageData data)
 }
 ```
 
+**Listening from a UI Toolkit element.** `OnAttachToPanel` fires in the Editor too, so a
+`contextType == Player` check is not enough to keep runtime subscriptions out of edit
+mode — add a play-mode guard:
+
+```csharp
+private void OnAttachToPanel(AttachToPanelEvent evt)
+{
+    if (panel.contextType != ContextType.Player) return;
+    if (!Application.isPlaying) return;   // AttachToPanel also fires on editor hierarchy rebuilds
+    _sub = ListenEvent.UI.MyEvent.Do(OnMyEvent);
+}
+```
+
 ## Reading payloads
 
 `EventMessageData` holds at most **one payload per concrete type**. Retrieve each by
@@ -305,6 +318,36 @@ An event in multiple categories is reachable under **each**:
 If an accessor won't resolve, the cause is almost always: the `EventMessage` asset is
 missing, it has **no category**, or accessors were not regenerated.
 
+### Verify the event ID persisted (or it resolves to null at runtime)
+
+Accessors are `GetDefinition(<int id>)` where `<id>` is the event's `ID` (from
+`ScriptableObjectWithID`, valid = non-zero). A **new** event whose ID wasn't
+persisted to disk compiles fine but resolves to `null` at runtime —
+`Cannot start listening to null EventMessage` — because the code generator and the
+runtime registry can end up keyed by two *different* auto-generated IDs.
+
+Why it happens: `BaseDefinition.OnEnable` assigns a **random, in-memory-only** ID
+(`IDGenerator.GenerateID()` is GUID-based, different every call) and does not save
+it; the `SOWithIDPostprocessor` that *should* persist one can skip a new asset in a
+mixed import batch. So codegen bakes one random ID, the runtime mints another.
+
+Do this when adding an event:
+1. Create it via **Create ▸ Definitions ▸ Event Message** (a single-asset import that
+   lets the postprocessor persist an ID) — don't hand-write the `.asset` with `ID: 0`.
+2. Regenerate accessors.
+3. **Verify the ID matches**: the `<id>` in the generated `GetDefinition(<id>)` must
+   equal `<ID>k__BackingField` in the `.asset`, and that value must be non-zero and
+   unique across all `ScriptableObjectWithID` assets.
+
+```bash
+# the id in the accessor and the id on disk must be the same non-zero number
+grep -R "GetDefinition(" Assets/**/Generated/ | grep MyEvent
+grep "k__BackingField" "Assets/**/MyEvent Event Message.asset"
+```
+
+If you must author the YAML by hand, set a non-zero unique `<ID>k__BackingField`
+yourself, then regenerate so the accessor picks up that same value.
+
 ## Validation and debugging
 
 - **Expected Payloads** on an `EventMessage` are validated at trigger time; a mismatch
@@ -332,3 +375,12 @@ missing, it has **no category**, or accessors were not regenerated.
   null in a build and nothing dispatches.
 - Caching an `EventMessageData` or a payload past the callback — the data is pooled and
   reused after dispatch.
+- Shipping an `EventMessage` asset with `ID: 0` (or relying on auto-assignment during a
+  batch import). The accessor compiles but `GetDefinition(id)` returns `null` at runtime.
+  Create via the menu, then verify the accessor's `GetDefinition(<id>)` equals the
+  asset's non-zero `<ID>k__BackingField`.
+- Subscribing to events from a UI Toolkit `VisualElement` inside `OnAttachToPanel`
+  guarded only by `panel.contextType == ContextType.Player`. `AttachToPanelEvent` also
+  fires in the **Editor** (hierarchy rebuilds), and scene UIDocument panels are always
+  `Player` context — so listeners register at edit time against a cold registry (new
+  events log null) and leak across domain reloads. Add `if (!Application.isPlaying) return;`.

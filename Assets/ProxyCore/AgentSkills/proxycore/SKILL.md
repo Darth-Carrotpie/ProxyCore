@@ -91,6 +91,16 @@ if (p != null) health -= p.value;      // note: lowercase `.value`
 `ListenEvent.…Do(cb)` returns an `IDisposable`. Keep the handle and dispose it in
 `OnDisable`, or the listener leaks across scene reloads. See `references/events.md`.
 
+### Definition IDs must be persisted and non-zero
+
+Every `ScriptableObjectWithID` (events, definitions) is keyed by an int `ID` (valid =
+non-zero). Generated event accessors embed that ID as `GetDefinition(<id>)`. A new asset
+whose ID wasn't persisted to disk **compiles but resolves to null at runtime** because
+codegen and the runtime registry can key it by two different auto-generated IDs. Create
+assets via the `Create ▸ Definitions ▸ …` menu (not hand-written YAML with `ID: 0`),
+regenerate accessors, and confirm the accessor's `<id>` equals the asset's non-zero
+`<ID>k__BackingField`.
+
 ## Event quick reference (the 80% case)
 
 Events are the most-used subsystem, so the core idiom is inlined here. For payload
