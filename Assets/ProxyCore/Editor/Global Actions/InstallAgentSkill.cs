@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
@@ -9,221 +10,464 @@ using PackageInfo = UnityEditor.PackageManager.PackageInfo;
 namespace ProxyCore.Editor
 {
     /// <summary>
-    /// One-click installer that copies ProxyCore's bundled LLM agent skill
-    /// (AgentSkills/proxycore) into the current project's agent folders.
-    ///
-    /// Focus is Claude Code (full skill copy to .claude/skills/proxycore). GitHub
-    /// Copilot and OpenAI Codex are also detected; when present they get a lightweight
-    /// pointer instruction that references the installed Claude skill folder.
-    ///
-    /// Menu: ProxyCore ▸ Install Agent Skill
+    /// Unity-facing entry point for installing ProxyCore's bundled Agent Skill.
+    /// The window gathers provider choices; AgentSkillInstaller owns validation,
+    /// transactional filesystem changes, provenance, and legacy migration.
     /// </summary>
     public static class InstallAgentSkill
     {
-        private const string SkillId = "proxycore";
-        private const string AgentSkillsDir = "AgentSkills";
-
-        // Marker block used in shared instruction files so re-installs are idempotent.
-        private const string BlockBegin = "<!-- BEGIN ProxyCore Agent Skill -->";
-        private const string BlockEnd = "<!-- END ProxyCore Agent Skill -->";
+        internal const string SkillId = "proxycore";
+        internal const string AgentSkillsDirectory = "AgentSkills";
 
         [MenuItem("ProxyCore/Install Agent Skill")]
         public static void Install()
         {
-            string source = GetSkillSourceDir();
+            string source = ResolveSkillSourceDirectory();
             if (source == null)
             {
                 EditorUtility.DisplayDialog(
-                    "ProxyCore — Install Agent Skill",
-                    $"Could not locate the bundled skill folder ({AgentSkillsDir}/{SkillId}). " +
+                    "ProxyCore - Install Agent Skill",
+                    $"Could not locate the bundled skill folder ({AgentSkillsDirectory}/{SkillId}). " +
                     "It should ship inside the ProxyCore package.",
                     "OK");
                 return;
             }
 
             string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
-
-            // Detect providers. Claude Code is the primary target and is always offered;
-            // Copilot/Codex only when a clear signal exists (to avoid writing into repos
-            // that don't use them).
-            bool hasClaude = Directory.Exists(Path.Combine(projectRoot, ".claude"));
-            bool hasCopilot = File.Exists(Path.Combine(projectRoot, ".github", "copilot-instructions.md"))
-                              || Directory.Exists(Path.Combine(projectRoot, ".github", "instructions"));
-            bool hasCodex = File.Exists(Path.Combine(projectRoot, "AGENTS.md"))
-                            || Directory.Exists(Path.Combine(projectRoot, ".codex"));
-
-            var plan = new StringBuilder();
-            plan.AppendLine("The following will be installed into your project:");
-            plan.AppendLine();
-            plan.AppendLine("• Claude Code — full skill → .claude/skills/proxycore/" +
-                            (hasClaude ? "  (detected)" : "  (folder will be created)"));
-            plan.AppendLine("• GitHub Copilot — pointer instruction → .github/instructions/proxycore.instructions.md" +
-                            (hasCopilot ? "  (detected)" : "  (not detected — skipped)"));
-            plan.AppendLine("• OpenAI Codex — pointer block → AGENTS.md" +
-                            (hasCodex ? "  (detected)" : "  (not detected — skipped)"));
-            plan.AppendLine();
-            plan.AppendLine("Existing installed files for these targets will be overwritten.");
-
-            if (!EditorUtility.DisplayDialog("ProxyCore — Install Agent Skill", plan.ToString(), "Install", "Cancel"))
-                return;
-
-            var results = new List<string>();
-            var errors = new List<string>();
-
-            // --- Claude Code (primary) ---
-            try
-            {
-                string dest = Path.Combine(projectRoot, ".claude", "skills", SkillId);
-                ReplaceDirectory(source, dest);
-                results.Add($"Claude Code: {ToProjectRelative(dest, projectRoot)}");
-            }
-            catch (Exception ex)
-            {
-                errors.Add($"Claude Code: {ex.Message}");
-            }
-
-            // --- GitHub Copilot (pointer, when detected) ---
-            if (hasCopilot)
-            {
-                try
-                {
-                    string dir = Path.Combine(projectRoot, ".github", "instructions");
-                    Directory.CreateDirectory(dir);
-                    string file = Path.Combine(dir, "proxycore.instructions.md");
-                    File.WriteAllText(file, CopilotInstruction(), new UTF8Encoding(false));
-                    results.Add($"GitHub Copilot: {ToProjectRelative(file, projectRoot)}");
-                }
-                catch (Exception ex)
-                {
-                    errors.Add($"GitHub Copilot: {ex.Message}");
-                }
-            }
-
-            // --- OpenAI Codex (AGENTS.md block, when detected) ---
-            if (hasCodex)
-            {
-                try
-                {
-                    string file = Path.Combine(projectRoot, "AGENTS.md");
-                    UpsertBlock(file, CodexBlock());
-                    results.Add($"OpenAI Codex: {ToProjectRelative(file, projectRoot)}");
-                }
-                catch (Exception ex)
-                {
-                    errors.Add($"OpenAI Codex: {ex.Message}");
-                }
-            }
-
-            var summary = new StringBuilder();
-            if (results.Count > 0)
-            {
-                summary.AppendLine("Installed:");
-                foreach (var r in results) summary.AppendLine("  • " + r);
-            }
-            if (errors.Count > 0)
-            {
-                summary.AppendLine();
-                summary.AppendLine("Failed:");
-                foreach (var e in errors) summary.AppendLine("  • " + e);
-            }
-
-            Debug.Log("[ProxyCore] Install Agent Skill\n" + summary);
-            EditorUtility.DisplayDialog("ProxyCore — Install Agent Skill", summary.ToString(), "OK");
+            AgentSkillInstallWindow.Open(projectRoot, source, ResolvePackageVersion());
         }
 
         /// <summary>
-        /// Resolves the bundled skill folder both when ProxyCore is an installed UPM
-        /// package and when it is embedded under Assets/ in this dev project.
+        /// Resolves the canonical skill both for an installed UPM package and for
+        /// this repository's Assets/ProxyCore development layout.
         /// </summary>
-        private static string GetSkillSourceDir()
+        internal static string ResolveSkillSourceDirectory()
         {
-            // 1) Installed as a UPM package — resolvedPath points at the package root.
-            var pkg = PackageInfo.FindForAssembly(typeof(InstallAgentSkill).Assembly);
-            if (pkg != null && !string.IsNullOrEmpty(pkg.resolvedPath))
+            PackageInfo package = PackageInfo.FindForAssembly(typeof(InstallAgentSkill).Assembly);
+            if (package != null && !string.IsNullOrEmpty(package.resolvedPath))
             {
-                string p = Path.Combine(pkg.resolvedPath, AgentSkillsDir, SkillId);
-                if (Directory.Exists(p)) return p;
+                string packaged = Path.Combine(
+                    package.resolvedPath,
+                    AgentSkillsDirectory,
+                    SkillId);
+                if (Directory.Exists(packaged))
+                    return Path.GetFullPath(packaged);
             }
 
-            // 2) Embedded under Assets/ProxyCore — locate this script and walk up to the
-            //    package root (…/ProxyCore/Editor/Global Actions/InstallAgentSkill.cs).
             foreach (string guid in AssetDatabase.FindAssets("InstallAgentSkill t:MonoScript"))
             {
                 string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-                if (!assetPath.EndsWith("/InstallAgentSkill.cs", StringComparison.Ordinal)) continue;
+                if (!assetPath.EndsWith("/InstallAgentSkill.cs", StringComparison.Ordinal))
+                    continue;
 
-                DirectoryInfo packageRoot = Directory.GetParent(Path.GetFullPath(assetPath)) // Global Actions
-                    ?.Parent   // Editor
-                    ?.Parent;  // ProxyCore (package root)
-                if (packageRoot == null) continue;
+                string scriptPath = Path.GetFullPath(assetPath);
+                DirectoryInfo packageRoot = Directory.GetParent(scriptPath) // Global Actions
+                    ?.Parent // Editor
+                    ?.Parent; // ProxyCore package root
+                if (packageRoot == null)
+                    continue;
 
-                string p = Path.Combine(packageRoot.FullName, AgentSkillsDir, SkillId);
-                if (Directory.Exists(p)) return p;
+                string embedded = Path.Combine(
+                    packageRoot.FullName,
+                    AgentSkillsDirectory,
+                    SkillId);
+                if (Directory.Exists(embedded))
+                    return Path.GetFullPath(embedded);
             }
 
             return null;
         }
 
-        /// <summary>Deletes <paramref name="dest"/> if present, then deep-copies the skill (ignoring .meta files).</summary>
-        private static void ReplaceDirectory(string source, string dest)
+        internal static string ResolvePackageVersion()
         {
-            if (Directory.Exists(dest))
-                Directory.Delete(dest, recursive: true);
+            PackageInfo package = PackageInfo.FindForAssembly(typeof(InstallAgentSkill).Assembly);
+            return package != null && !string.IsNullOrWhiteSpace(package.version)
+                ? package.version
+                : "development";
+        }
+    }
 
-            foreach (string file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
-            {
-                if (file.EndsWith(".meta", StringComparison.OrdinalIgnoreCase)) continue;
+    internal sealed class AgentSkillInstallWindow : EditorWindow
+    {
+        private const float WindowWidth = 620f;
+        private const float WindowHeight = 560f;
 
-                string relative = file.Substring(source.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                string target = Path.Combine(dest, relative);
-                Directory.CreateDirectory(Path.GetDirectoryName(target));
-                File.Copy(file, target, overwrite: true);
-            }
+        [SerializeField] private string _projectRoot;
+        [SerializeField] private string _sourceDirectory;
+        [SerializeField] private string _packageVersion;
+        [SerializeField] private bool _installClaude = true;
+        [SerializeField] private bool _installCopilot = true;
+        [SerializeField] private bool _installCodex = true;
+        [SerializeField] private bool _allowUnmanagedOverwrite;
+        [SerializeField] private bool _allowModifiedUninstall;
+        [SerializeField] private Vector2 _scroll;
+
+        private readonly AgentSkillInstaller _installer = new AgentSkillInstaller();
+        private string _validationError;
+
+        internal static void Open(string projectRoot, string sourceDirectory, string packageVersion)
+        {
+            AgentSkillInstallWindow window = GetWindow<AgentSkillInstallWindow>(
+                utility: true,
+                title: "ProxyCore Agent Skill",
+                focus: true);
+            window.minSize = new Vector2(WindowWidth, WindowHeight);
+            window.maxSize = new Vector2(WindowWidth, WindowHeight);
+            window._projectRoot = projectRoot;
+            window._sourceDirectory = sourceDirectory;
+            window._packageVersion = packageVersion;
+            window.ValidateSource();
+            window.Show();
         }
 
-        /// <summary>Creates or replaces a marker-delimited block in a shared instruction file, leaving the rest intact.</summary>
-        private static void UpsertBlock(string file, string block)
+        private void OnEnable()
         {
-            string existing = File.Exists(file) ? File.ReadAllText(file) : string.Empty;
+            if (!string.IsNullOrEmpty(_sourceDirectory))
+                ValidateSource();
+        }
 
-            int begin = existing.IndexOf(BlockBegin, StringComparison.Ordinal);
-            int end = existing.IndexOf(BlockEnd, StringComparison.Ordinal);
-            if (begin >= 0 && end > begin)
+        private void OnGUI()
+        {
+            EditorGUILayout.Space(8);
+            EditorGUILayout.LabelField("Install ProxyCore Agent Skill", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(
+                "Choose the coding agents used by this project. Each selected agent receives a complete, native skill copy.",
+                EditorStyles.wordWrappedLabel);
+            EditorGUILayout.Space(8);
+
+            if (!string.IsNullOrEmpty(_validationError))
             {
-                string before = existing.Substring(0, begin);
-                string after = existing.Substring(end + BlockEnd.Length);
-                File.WriteAllText(file, before + block + after, new UTF8Encoding(false));
+                EditorGUILayout.HelpBox(_validationError, MessageType.Error);
+                DrawFooter(canInstall: false, canUninstall: false);
                 return;
             }
 
-            string sep = existing.Length == 0 || existing.EndsWith("\n") ? string.Empty : "\n";
-            File.WriteAllText(file, existing + sep + "\n" + block + "\n", new UTF8Encoding(false));
+            _scroll = EditorGUILayout.BeginScrollView(_scroll);
+
+            EditorGUILayout.LabelField("Native targets", EditorStyles.boldLabel);
+            _installClaude = DrawTargetToggle(
+                _installClaude,
+                AgentSkillTargets.ClaudeCode,
+                IsClaudeDetected());
+            _installCopilot = DrawTargetToggle(
+                _installCopilot,
+                AgentSkillTargets.GitHubCopilot,
+                IsCopilotDetected());
+            _installCodex = DrawTargetToggle(
+                _installCodex,
+                AgentSkillTargets.OpenAICodex,
+                IsCodexDetected());
+
+            IReadOnlyList<AgentSkillTarget> selected = SelectedTargets();
+            IReadOnlyList<AgentSkillTargetPlan> plans = Array.Empty<AgentSkillTargetPlan>();
+            IReadOnlyList<AgentSkillUninstallTargetPlan> uninstallPlans =
+                Array.Empty<AgentSkillUninstallTargetPlan>();
+            string planningError = null;
+
+            if (selected.Count > 0)
+            {
+                try
+                {
+                    plans = _installer.Plan(CreateRequest(selected));
+                    uninstallPlans = _installer.PlanUninstall(
+                        CreateUninstallRequest(selected));
+                }
+                catch (Exception ex)
+                {
+                    planningError = ex.Message;
+                }
+            }
+
+            if (_installCopilot && (_installClaude || _installCodex))
+            {
+                EditorGUILayout.HelpBox(
+                    "Current Copilot versions can also scan .claude/skills and .agents/skills. " +
+                    "The .github copy has priority for a duplicate skill name. The installer keeps " +
+                    "the managed payload synchronized across selected targets and records provenance.",
+                    MessageType.Info);
+            }
+
+            EditorGUILayout.Space(8);
+            EditorGUILayout.LabelField("Preflight", EditorStyles.boldLabel);
+            if (planningError != null)
+            {
+                EditorGUILayout.HelpBox(planningError, MessageType.Error);
+            }
+            else if (selected.Count == 0)
+            {
+                EditorGUILayout.HelpBox("Select at least one agent.", MessageType.Warning);
+            }
+            else
+            {
+                foreach (AgentSkillTargetPlan plan in plans)
+                    DrawPlan(plan);
+            }
+
+            bool hasConflict = plans.Any(plan => plan.State == AgentSkillDestinationState.Conflict);
+            if (hasConflict)
+            {
+                EditorGUILayout.Space(4);
+                _allowUnmanagedOverwrite = EditorGUILayout.ToggleLeft(
+                    "Replace conflicting skill folders (preserve non-colliding extra files)",
+                    _allowUnmanagedOverwrite);
+                EditorGUILayout.HelpBox(
+                    "Conflicts can contain local changes. Leave this disabled unless you reviewed " +
+                    "the listed folders and want ProxyCore's managed files to replace them.",
+                    MessageType.Warning);
+            }
+            else
+            {
+                _allowUnmanagedOverwrite = false;
+            }
+
+            bool hasManagedUninstall = uninstallPlans.Any(plan =>
+                plan.State == AgentSkillUninstallState.ManagedClean ||
+                plan.State == AgentSkillUninstallState.ManagedModified);
+            bool hasModifiedUninstall = uninstallPlans.Any(plan =>
+                plan.State == AgentSkillUninstallState.ManagedModified);
+            if (hasModifiedUninstall)
+            {
+                EditorGUILayout.Space(4);
+                _allowModifiedUninstall = EditorGUILayout.ToggleLeft(
+                    "Allow uninstall to remove locally modified managed files",
+                    _allowModifiedUninstall);
+            }
+            else
+            {
+                _allowModifiedUninstall = false;
+            }
+
+            EditorGUILayout.Space(8);
+            EditorGUILayout.HelpBox(
+                "After a successful native install, the old generated Copilot pointer and marked " +
+                "ProxyCore block in AGENTS.md are removed only when ownership can be proven. " +
+                "Unrelated instructions are preserved.",
+                MessageType.None);
+
+            EditorGUILayout.EndScrollView();
+
+            bool canInstall = selected.Count > 0 &&
+                              planningError == null &&
+                              (!hasConflict || _allowUnmanagedOverwrite);
+            bool canUninstall = selected.Count > 0 &&
+                                planningError == null &&
+                                hasManagedUninstall &&
+                                (!hasModifiedUninstall || _allowModifiedUninstall);
+            DrawFooter(canInstall, canUninstall);
         }
 
-        private static string CopilotInstruction() =>
-            "---\n" +
-            "applyTo: \"**\"\n" +
-            "---\n" +
-            "# ProxyCore\n\n" +
-            "This project uses the ProxyCore Unity package. A full agent skill explaining its\n" +
-            "correct usage (event system, definition-registries, unlockables) is installed at\n" +
-            "`.claude/skills/proxycore/`. Read `.claude/skills/proxycore/SKILL.md` and the files\n" +
-            "under `.claude/skills/proxycore/references/` before writing ProxyCore code — the\n" +
-            "idioms there differ from generic Unity code.\n";
-
-        private static string CodexBlock() =>
-            BlockBegin + "\n" +
-            "## ProxyCore\n\n" +
-            "This project uses the ProxyCore Unity package. Read `.claude/skills/proxycore/SKILL.md`\n" +
-            "and its `references/` before writing ProxyCore code (events, definitions/registries,\n" +
-            "unlockables) — the correct idioms differ from generic Unity code.\n" +
-            BlockEnd;
-
-        private static string ToProjectRelative(string fullPath, string projectRoot)
+        private bool DrawTargetToggle(bool value, AgentSkillTarget target, bool detected)
         {
-            if (fullPath.StartsWith(projectRoot, StringComparison.OrdinalIgnoreCase))
-                return fullPath.Substring(projectRoot.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace('\\', '/');
-            return fullPath.Replace('\\', '/');
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            bool next = EditorGUILayout.ToggleLeft(
+                target.DisplayName + (detected ? " (project signal detected)" : string.Empty),
+                value,
+                EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(target.RelativeDirectory + "/", EditorStyles.miniLabel);
+            EditorGUILayout.EndVertical();
+            return next;
+        }
+
+        private void DrawPlan(AgentSkillTargetPlan plan)
+        {
+            MessageType type = plan.State switch
+            {
+                AgentSkillDestinationState.Conflict => MessageType.Warning,
+                AgentSkillDestinationState.UpToDate => MessageType.Info,
+                _ => MessageType.None
+            };
+
+            string state = plan.State switch
+            {
+                AgentSkillDestinationState.Missing => "New install",
+                AgentSkillDestinationState.UpToDate => "Up to date",
+                AgentSkillDestinationState.ManagedUpdate => "Managed update",
+                AgentSkillDestinationState.LegacyExactCopy => "Adopt legacy copy",
+                AgentSkillDestinationState.Conflict => "Conflict",
+                _ => plan.State.ToString()
+            };
+
+            EditorGUILayout.HelpBox(
+                $"{plan.Target.DisplayName} - {state}\n{plan.Detail}",
+                type);
+        }
+
+        private void DrawFooter(bool canInstall, bool canUninstall)
+        {
+            EditorGUILayout.Space(8);
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+
+            if (GUILayout.Button("Close", GUILayout.Width(90)))
+                Close();
+
+            using (new EditorGUI.DisabledScope(!canUninstall))
+            {
+                if (GUILayout.Button("Uninstall Managed", GUILayout.Width(130)))
+                    RunUninstall();
+            }
+
+            using (new EditorGUI.DisabledScope(!canInstall))
+            {
+                if (GUILayout.Button("Install Selected", GUILayout.Width(130)))
+                    RunInstall();
+            }
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(8);
+        }
+
+        private void RunInstall()
+        {
+            IReadOnlyList<AgentSkillTarget> selected = SelectedTargets();
+            var confirmation = new StringBuilder();
+            confirmation.AppendLine("Install the full ProxyCore skill into:");
+            confirmation.AppendLine();
+            foreach (AgentSkillTarget target in selected)
+                confirmation.AppendLine("- " + target.RelativeDirectory + "/");
+            confirmation.AppendLine();
+            confirmation.AppendLine("Selected targets are staged and committed as one transaction.");
+
+            if (!EditorUtility.DisplayDialog(
+                    "ProxyCore - Install Agent Skill",
+                    confirmation.ToString(),
+                    "Install",
+                    "Cancel"))
+            {
+                return;
+            }
+
+            try
+            {
+                AgentSkillInstallReport report = _installer.Install(CreateRequest(selected));
+                string summary = report.ToDisplayString(_projectRoot);
+                Debug.Log("[ProxyCore] Install Agent Skill\n" + summary);
+                EditorUtility.DisplayDialog(
+                    "ProxyCore - Install Agent Skill",
+                    summary,
+                    "OK");
+                Repaint();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                EditorUtility.DisplayDialog(
+                    "ProxyCore - Install Agent Skill",
+                    "Installation failed. Existing managed installations were kept or rolled back.\n\n" +
+                    ex.Message,
+                    "OK");
+                Repaint();
+            }
+        }
+
+        private void RunUninstall()
+        {
+            IReadOnlyList<AgentSkillTarget> selected = SelectedTargets();
+            var confirmation = new StringBuilder();
+            confirmation.AppendLine("Uninstall ProxyCore-managed skill files from:");
+            confirmation.AppendLine();
+            foreach (AgentSkillTarget target in selected)
+                confirmation.AppendLine("- " + target.RelativeDirectory + "/");
+            confirmation.AppendLine();
+            confirmation.AppendLine(
+                "Only files recorded in a valid ownership manifest are removed. " +
+                "Unmanaged folders and local extra files are preserved.");
+
+            if (!EditorUtility.DisplayDialog(
+                    "ProxyCore - Uninstall Agent Skill",
+                    confirmation.ToString(),
+                    "Uninstall",
+                    "Cancel"))
+            {
+                return;
+            }
+
+            try
+            {
+                AgentSkillUninstallReport report = _installer.Uninstall(
+                    CreateUninstallRequest(selected));
+                string summary = report.ToDisplayString(_projectRoot);
+                Debug.Log("[ProxyCore] Uninstall Agent Skill\n" + summary);
+                EditorUtility.DisplayDialog(
+                    "ProxyCore - Uninstall Agent Skill",
+                    summary,
+                    "OK");
+                Repaint();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                EditorUtility.DisplayDialog(
+                    "ProxyCore - Uninstall Agent Skill",
+                    "Uninstall failed. Existing managed installations were kept or rolled back.\n\n" +
+                    ex.Message,
+                    "OK");
+                Repaint();
+            }
+        }
+
+        private AgentSkillInstallRequest CreateRequest(IReadOnlyList<AgentSkillTarget> targets)
+        {
+            return new AgentSkillInstallRequest(
+                _projectRoot,
+                _sourceDirectory,
+                _packageVersion,
+                targets,
+                _allowUnmanagedOverwrite,
+                removeLegacyBridges: true);
+        }
+
+        private AgentSkillUninstallRequest CreateUninstallRequest(
+            IReadOnlyList<AgentSkillTarget> targets)
+        {
+            return new AgentSkillUninstallRequest(
+                _projectRoot,
+                targets,
+                _allowModifiedUninstall);
+        }
+
+        private IReadOnlyList<AgentSkillTarget> SelectedTargets()
+        {
+            var targets = new List<AgentSkillTarget>();
+            if (_installClaude)
+                targets.Add(AgentSkillTargets.ClaudeCode);
+            if (_installCopilot)
+                targets.Add(AgentSkillTargets.GitHubCopilot);
+            if (_installCodex)
+                targets.Add(AgentSkillTargets.OpenAICodex);
+            return targets;
+        }
+
+        private void ValidateSource()
+        {
+            try
+            {
+                _installer.ValidateSource(_sourceDirectory);
+                _validationError = null;
+            }
+            catch (Exception ex)
+            {
+                _validationError = ex.Message;
+            }
+        }
+
+        private bool IsClaudeDetected()
+        {
+            return Directory.Exists(Path.Combine(_projectRoot, ".claude"));
+        }
+
+        private bool IsCopilotDetected()
+        {
+            return Directory.Exists(Path.Combine(_projectRoot, ".github", "skills")) ||
+                   File.Exists(Path.Combine(_projectRoot, ".github", "copilot-instructions.md")) ||
+                   Directory.Exists(Path.Combine(_projectRoot, ".github", "instructions"));
+        }
+
+        private bool IsCodexDetected()
+        {
+            return Directory.Exists(Path.Combine(_projectRoot, ".agents", "skills")) ||
+                   Directory.Exists(Path.Combine(_projectRoot, ".codex")) ||
+                   File.Exists(Path.Combine(_projectRoot, "AGENTS.md"));
         }
     }
 }

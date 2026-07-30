@@ -24,26 +24,46 @@ offer an "Update" for it on its own. Instead:
 
 ## AI Agent Skill
 
-This repo ships a self-contained **Claude Skill** at [`.claude/skills/proxycore/`](.claude/skills/proxycore/)
-that teaches an LLM coding agent how to use ProxyCore correctly (the event system,
-definition-registries, and unlockables) — including the idioms that differ from
-generic Unity code. It's portable: copy the folder into any project.
+ProxyCore ships one portable Agent Skill from its
+[canonical package source](Assets/ProxyCore/AgentSkills/proxycore/). It teaches coding
+agents the package-specific event, definition/registry, and unlockable idioms.
 
 **Install into a project — one click (recommended):**
-- In the Unity Editor, run **ProxyCore ▸ Install Agent Skill**. It copies the bundled
-  skill into your project and detects your agent tooling — Claude Code (full skill →
-  `.claude/skills/proxycore/`), plus a pointer instruction for GitHub Copilot / OpenAI
-  Codex when those are detected.
 
-**Install manually:**
-- Copy `.claude/skills/proxycore/` into your project's `.claude/skills/` folder, or
-  into `~/.claude/skills/` to make it available in every project on your machine.
-- That's it — the agent auto-discovers it and loads it when you work with ProxyCore.
+- In Unity, run **ProxyCore ▸ Install Agent Skill**.
+- Select the coding agents used by the project. Each receives a complete native copy:
 
-**Use with any other LLM:** the skill is plain Markdown. Point the model at
-[`.claude/skills/proxycore/SKILL.md`](.claude/skills/proxycore/SKILL.md) (it links to
-the per-subsystem reference files under `references/`), or paste `SKILL.md` into
-context. No tooling or plugins required.
+| Agent | Project-scoped destination |
+|---|---|
+| Claude Code | `.claude/skills/proxycore/` |
+| GitHub Copilot | `.github/skills/proxycore/` |
+| OpenAI Codex | `.agents/skills/proxycore/` |
+
+Re-run the installer after a ProxyCore update to refresh managed copies. The installer
+validates the source and its local links before writing, records ownership in each
+destination, preserves unowned extra files, and rolls selected targets back together if
+a commit fails. Conflicting local edits require explicit confirmation. **Uninstall
+Managed** removes only files recorded by a valid ProxyCore ownership manifest.
+
+Older pointer-based Copilot instructions and the marked ProxyCore block in `AGENTS.md`
+are migrated only when the installer can prove they are unchanged; customized
+instructions are retained with a warning.
+
+[Copilot can also discover](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills)
+compatible skills in `.agents/skills` and `.claude/skills`. For duplicate names,
+[Copilot CLI prioritizes](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#skills-reference)
+`.github`, then `.agents`, then `.claude`, so
+`.github/skills/proxycore/` is ProxyCore's native Copilot target and the installer
+keeps the managed payload synchronized across selected targets.
+
+**Install manually:** copy
+[`Assets/ProxyCore/AgentSkills/proxycore/`](Assets/ProxyCore/AgentSkills/proxycore/)
+to the applicable destination above. The repo-root `.claude/skills/proxycore/` folder
+is an installed development copy, not the source of truth.
+
+**Use with another LLM:** the skill is plain Markdown. Point the model at the canonical
+[`SKILL.md`](Assets/ProxyCore/AgentSkills/proxycore/SKILL.md), including its linked
+`references/`, or add that content to the model's context.
 
 ## Core Concepts
 

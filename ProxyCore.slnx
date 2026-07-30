@@ -4,6 +4,7 @@
   <Project Path="ProxyCore.Samples.Basic.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
   <Project Path="ProxyCore.Editor.csproj" />
+  <Project Path="ProxyCore.Editor.Tests.csproj" />
   <Project Path="Assembly-CSharp-Editor.csproj" />
   <Project Path="ProxyCore.Samples.Unlockables.Editor.csproj" />
 </Solution>

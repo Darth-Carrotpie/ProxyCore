@@ -21,13 +21,14 @@ task touches exactly one of them — read the matching reference file, not all t
 
 | You are… | Read |
 |---|---|
-| triggering/listening to events, writing a `*Payload`, adding a category, regenerating accessors | `references/events.md` |
-| creating a `*Definition` (data asset) or a `*Registry`/catalog that looks them up — a general pattern for any family of entities (resources, NPCs, world events…) | `references/definitions-and-registries.md` |
-| locking/unlocking content, prerequisites/auto-unlock chains, flags, unlock conditions | `references/unlockables.md` |
+| triggering/listening to events, writing a `*Payload`, adding a category, regenerating accessors | [events](references/events.md) |
+| creating a `*Definition` (data asset) or a `*Registry`/catalog that looks them up — a general pattern for any family of entities (resources, NPCs, world events…) | [definitions and registries](references/definitions-and-registries.md) |
+| locking/unlocking content, prerequisites/auto-unlock chains, flags, unlock conditions | [unlockables](references/unlockables.md) |
 
 For unlockables, split the work: **you implement** the plumbing (IUnlockable, conditions,
 runtime unlock calls); the **designer connects the actual unlock chains** in the visual
-Unlock Dependency Graph. Don't fabricate the progression tree — see `references/unlockables.md`.
+Unlock Dependency Graph. Don't fabricate the progression tree — see the
+[unlockables reference](references/unlockables.md).
 
 The rules below are cross-cutting and apply no matter which subsystem you touch.
 Read them before writing any ProxyCore code.
@@ -89,7 +90,8 @@ if (p != null) health -= p.value;      // note: lowercase `.value`
 ### Event subscriptions are IDisposable — store and dispose them
 
 `ListenEvent.…Do(cb)` returns an `IDisposable`. Keep the handle and dispose it in
-`OnDisable`, or the listener leaks across scene reloads. See `references/events.md`.
+`OnDisable`, or the listener leaks across scene reloads. See the
+[events reference](references/events.md).
 
 ### Definition IDs must be persisted and non-zero
 
@@ -104,7 +106,8 @@ regenerate accessors, and confirm the accessor's `<id>` equals the asset's non-z
 ## Event quick reference (the 80% case)
 
 Events are the most-used subsystem, so the core idiom is inlined here. For payload
-authoring, categories, and accessor generation, read `references/events.md`.
+authoring, categories, and accessor generation, read the
+[events reference](references/events.md).
 
 ```csharp
 using ProxyCore;
@@ -138,9 +141,11 @@ void OnDisable() => _sub?.Dispose();
 are **generated code**. They exist only after an `EventMessage` asset with that
 short name and category exists and accessors have been generated (menu
 **ProxyCore ▸ Regenerate Event Accessors**). If an accessor doesn't resolve, the
-asset or the regeneration step is missing — see `references/events.md`.
+asset or the regeneration step is missing — see the
+[events reference](references/events.md).
 
-Two things to internalize before writing event code (details in `references/events.md`):
+Two things to internalize before writing event code (details in the
+[events reference](references/events.md)):
 - **Reuse and compose payloads.** Don't make one payload type per event — payloads are
   generic, shape-named data carriers (`TileCoordPayload`, `AmountPayload`) shared across
   many events and composed per event with `.With(a).With(b).With(c)`.
