@@ -2,7 +2,8 @@
     "name": "ProxyCore.Editor.Tests",
     "rootNamespace": "ProxyCore.Editor.Tests",
     "references": [
-        "ProxyCore.Editor"
+        "ProxyCore.Editor",
+        "ProxyCore"
     ],
     "includePlatforms": [
         "Editor"
