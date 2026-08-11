@@ -38,4 +38,5 @@
   <Project Path="ProxyCore.Samples.Unlockables.Editor.csproj" />
   <Project Path="UnitySkills.Tests.Runtime.csproj" />
   <Project Path="Unity.Collections.Editor.csproj" />
+  <Project Path="ProxyCore.Tests.Editor.csproj" />
 </Solution>

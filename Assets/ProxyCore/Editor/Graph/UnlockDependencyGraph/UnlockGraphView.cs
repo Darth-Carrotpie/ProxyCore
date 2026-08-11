@@ -921,6 +921,7 @@ namespace ProxyCore.Editor.Graph {
             node.OnTypeColorChanged += OnDefinitionTypeColorChanged;
             node.OnPassStrategyChanged += OnDefinitionPassStrategyChanged;
             node.OnPrerequisiteModeChanged += OnDefinitionPrerequisiteModeChanged;
+            node.OnUnlockStateToggled += _ => RefreshAllBadges();
             AddElement(node);
             _definitionNodes[guid] = node;
             return node;
@@ -995,6 +996,15 @@ namespace ProxyCore.Editor.Graph {
         public DefinitionNode FindDefinitionNode(string guid) {
             _definitionNodes.TryGetValue(guid, out var node);
             return node;
+        }
+
+        /// <summary>
+        /// Re-reads live unlock state onto every definition node. One unlock can cascade
+        /// through auto-unlock chains, so a single toggle can change many badges.
+        /// </summary>
+        public void RefreshAllBadges() {
+            foreach (var kvp in _definitionNodes)
+                kvp.Value.RefreshBadge();
         }
 
         public ConditionNode FindConditionNode(string assetGuid) {

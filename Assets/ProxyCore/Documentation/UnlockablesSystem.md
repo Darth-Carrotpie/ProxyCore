@@ -81,17 +81,69 @@ UnlockManager.IsUnlockedByKey(key); // true only if explicitly unlocked (saved o
 UnlockManager.UnlockAll(items);     // single Save() pass for all persistent keys
 UnlockManager.LockAll(items);
 // Reset
-UnlockManager.ResetSavedUnlocks();  // clears disk state (unlocks.json)
-UnlockManager.ResetSessionUnlocks();// clears in-memory (session + overrides)
+UnlockManager.ResetSavedUnlocks();  // clears saved state (unlocks + lock overrides) and deletes the file
+UnlockManager.ResetSessionUnlocks();// clears session-only unlocks
+// Save profiles
+UnlockManager.SetSaveProfile("level1_slot2"); // point disk state at unlocks_level1_slot2.json
+string profile = UnlockManager.SaveProfile;   // "" while using the default unlocks.json
 // Auto-unlock
 UnlockManager.EvaluateAutoTriggers();// manually re-evaluate all registered triggers
 ```
+
+### Lock overrides — Lock() and Unlock() are symmetric
+
+`Lock(item)` records the item's key in an internal *lock override* set. While a key is in
+that set, `IsUnlocked` returns `false` even when `IsUnlockedByDefault` is `true`.
+
+**`Unlock(item)` clears the override.** `Lock(x)` followed by `Unlock(x)` leaves the item
+unlocked, and the single (`Unlock`) and bulk (`UnlockAll`, `UnlockAllByKeys`) paths always
+produce identical state from identical input.
+
+`Lock` also removes the key from *both* the saved and session unlock sets, so
+`IsUnlockedByKey` never disagrees with `IsUnlocked` after a lock.
+
+Lock overrides are **saved state**: they are written to the same file as saved unlocks and
+survive app restarts and scene reloads. Two ways to clear one:
+
+| Call | Effect on lock overrides |
+|---|---|
+| `Unlock(item)` / `UnlockAll(items)` | clears the override for those items |
+| `ResetSavedUnlocks()` | clears **all** overrides and deletes the save file |
+| `ResetSessionUnlocks()` | **no effect** — overrides are not session state |
+
+> Changed in 2.4.0: `Unlock()` previously could not reverse `Lock()`, overrides were
+> memory-only, and `ResetSessionUnlocks()` was the only way to clear them.
+
+The `savesAcrossSessions` argument on `LockByKey` / `LockAllByKeys` is retained for API
+symmetry only — overrides always persist, so it no longer selects a storage tier.
 
 ### Persistence
 
 - `SavesAcrossSessions = true` → key written to `Application.persistentDataPath/unlocks.json`.
 - `SavesAcrossSessions = false` → key is session-only; cleared on every scene reload.
-- `IsUnlockedByDefault = true` → item is treated as unlocked without any explicit `Unlock()` call. An explicit `Lock()` overrides this.
+- `IsUnlockedByDefault = true` → item is treated as unlocked without any explicit `Unlock()` call. An explicit `Lock()` overrides this until the next `Unlock()`.
+- Lock overrides are always persisted, regardless of `SavesAcrossSessions`.
+
+### Save profiles (one save file per save game)
+
+By default all unlock state lives in a single `unlocks.json`. Call `SetSaveProfile` to give
+each save game its own file:
+
+```csharp
+UnlockManager.SetSaveProfile("level1_slot2"); // → unlocks_level1_slot2.json
+UnlockManager.SetSaveProfile("");             // → back to the shared unlocks.json
+```
+
+Switching discards all in-memory unlock state, loads the new profile from disk, and runs an
+auto-unlock pass. Characters that are illegal in a filename are replaced with `_`. Existing
+projects need no migration: the default empty profile keeps writing `unlocks.json`.
+
+`SaveProfile` is a static, so it resets on domain reload and when entering Play Mode — set
+it as part of loading a save. The Unlock Dependency Graph window applies its selected
+graph's save slot automatically.
+
+**Not profile-scoped:** `GameFlagCollection` still writes `flags_{name}.json`, so flags are
+shared across all save profiles.
 
 ### IsUnlocked vs IsUnlockedByKey
 
@@ -187,9 +239,30 @@ replace stale wrong-type conditions automatically when the pass mode changes. Se
 | Tool | Access | Purpose |
 |---|---|---|
 | `UnlockDebugWindow` | Scene View toolbar lock icon | Live view of saved / session unlock keys during Play Mode |
-| `ProxyCore > Unlockables > Clear Save Data` | Menu bar | Deletes `unlocks.json`; works in Edit and Play Mode |
-| `ProxyCore > Unlockables > Reset Session Unlocks` | Menu bar | Clears in-memory state; Play Mode only |
-| Condition Cleanup dialog | `ProxyCore > Unlock Graph > Condition Cleanup` | Lists Used, Mismatched, and Unused condition assets with bulk delete |
+| `ProxyCore > Unlockable Actions > Clear Save Data` | Menu bar | Deletes the **active save profile's** file; works in Edit and Play Mode |
+| `ProxyCore > Unlockable Actions > Reset Session Unlocks` | Menu bar | Clears session-only unlocks; Play Mode only |
+| `ProxyCore > Unlockable Actions > Refresh Unlock Registries` | Menu bar | Repopulates the manager's auto-unlock registry list |
+| Condition Cleanup dialog | Unlock Graph toolbar → `Cleanup` | Lists Used, Mismatched, and Unused condition assets with bulk delete |
+
+### Unlock Dependency Graph — multiple graphs & save slots
+
+Open with **ProxyCore ▸ Unlock Dependency Graph**.
+
+- **Graph dropdown** (leftmost) — switch between graphs, or create, duplicate, rename, and
+  delete them. Each graph is a separate `UnlockGraphLayoutData` asset, normally one per game
+  level. A graph owns its node layout, groups, colours, **registry filter**, and save slots.
+  The registry filter is what scopes a graph to its level: hide the registries that level
+  does not use, via the `Registries ▾` dropdown.
+- **Save dropdown** (`💾`) — the graph's save slots, plus New Save / Delete Save. Selecting a
+  slot calls `UnlockManager.SetSaveProfile("{graphId}_{slot}")`, so each slot reads and
+  writes its own `unlocks_*.json`. Deleting a slot erases that file.
+- **Per-node lock toggle** — the 🔒/🔓 button in a definition node's title bar locks or
+  unlocks that definition immediately. It works in **Edit Mode as well as Play Mode**, and
+  writes to the active save profile's file. Auto-unlock cascades are applied, so other node
+  badges update in the same click.
+
+> The node toggle mutates real save data. Select a scratch save slot before using it if you
+> do not want to disturb the default profile.
 
 ---
 

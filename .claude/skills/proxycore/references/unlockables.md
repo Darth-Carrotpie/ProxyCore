@@ -95,7 +95,7 @@ manager stores but does not enforce; your UI reads it.
 `IUnlockable` (or a raw key).
 
 ```csharp
-UnlockManager.Unlock(item);          // unlock (persists if SavesAcrossSessions)
+UnlockManager.Unlock(item);          // unlock + clear any lock override (persists if SavesAcrossSessions)
 UnlockManager.Lock(item);            // explicit lock — overrides IsUnlockedByDefault
 bool ok = UnlockManager.IsUnlocked(item);
 bool no = UnlockManager.IsLocked(item);
@@ -109,19 +109,39 @@ UnlockManager.UnlockAll(items);
 UnlockManager.LockAll(items);
 
 // Reset:
-UnlockManager.ResetSavedUnlocks();   // clears disk state (unlocks.json)
-UnlockManager.ResetSessionUnlocks(); // clears in-memory session + lock overrides
+UnlockManager.ResetSavedUnlocks();   // clears saved unlocks AND lock overrides, deletes the file
+UnlockManager.ResetSessionUnlocks(); // clears session-only unlocks
+
+// Save profiles — one save file per save game:
+UnlockManager.SetSaveProfile("level1_slot2"); // → unlocks_level1_slot2.json
+string profile = UnlockManager.SaveProfile;   // "" = default unlocks.json
 ```
 
 The static form (`UnlockManager.Unlock(item)`) is preferred and equivalent to
 `UnlockManager.Instance.Unlock(item)`.
+
+**Lock/Unlock are symmetric.** `Lock(x)` records a lock override; `Unlock(x)` clears it.
+`Lock(x); Unlock(x);` leaves the item unlocked, and single vs bulk paths always agree.
+`Lock` also drops the key from both unlock sets, so `IsUnlockedByKey` never disagrees with
+`IsUnlocked` after a lock. Overrides are **saved state** — they survive restarts and scene
+reloads, and `ResetSessionUnlocks()` does **not** clear them (use `Unlock()` or
+`ResetSavedUnlocks()`). The `savesAcrossSessions` argument on `LockByKey`/`LockAllByKeys`
+is vestigial: overrides always persist.
 
 **Persistence model:**
 - `SavesAcrossSessions = true` → key written to
   `Application.persistentDataPath/unlocks.json`, survives app restarts.
 - `SavesAcrossSessions = false` → session-only; cleared on scene reload.
 - `IsUnlockedByDefault = true` → treated as unlocked with no `Unlock()` call; an
-  explicit `Lock()` still overrides it.
+  explicit `Lock()` overrides it until the next `Unlock()`.
+- Lock overrides always persist, regardless of `SavesAcrossSessions`.
+
+**Save profiles.** `SetSaveProfile(id)` swaps the backing file to `unlocks_{id}.json`,
+discarding in-memory state and reloading. Use one profile per save game — the Unlock Graph
+window composes `"{graphId}_{slot}"`. Empty id = the shared `unlocks.json`, so existing
+projects need no migration. `SaveProfile` is a static and resets on domain reload, so set it
+as part of loading a save. `GameFlagCollection` is **not** profile-scoped — flags are shared
+across saves.
 
 ## IsUnlocked vs IsUnlockedByKey
 
@@ -239,6 +259,21 @@ have strategies.
 Menu actions: **ProxyCore ▸ Unlock Debug Window** (live saved/session keys in Play
 Mode), **ProxyCore ▸ Unlockable Actions ▸ Clear Save Data / Reset Session Unlocks**.
 
+## Editor: multiple graphs & save slots
+
+A project can hold several unlock graphs — one `UnlockGraphLayoutData` asset each, typically
+one per game level. The window's **graph dropdown** switches, creates, duplicates, renames,
+and deletes them; the **`💾` dropdown** manages that graph's save slots.
+
+A graph owns its node layout, groups, colours, **registry filter**, and save slot list.
+The registry filter is how a graph is scoped to a level — hide the registries that level does
+not use. Selecting a save slot calls `UnlockManager.SetSaveProfile("{graphId}_{slot}")`.
+
+Definition nodes carry a 🔒/🔓 button that locks or unlocks that definition on the spot, in
+**Edit Mode as well as Play Mode**, writing to the active save profile. Useful for testing a
+progression state without playing to it — but it mutates real save data, so pick a scratch
+save slot first.
+
 ## Common mistakes
 
 - `UnlockManager` / registry assets outside a `Resources/` folder → `Instance` null in
@@ -251,3 +286,7 @@ Mode), **ProxyCore ▸ Unlockable Actions ▸ Clear Save Data / Reset Session Un
   `IsUnlockedByKey` there.
 - Calling `SetFlag` with a name not declared in the collection — it's rejected with a
   warning and does nothing.
+- Expecting `ResetSessionUnlocks()` to clear a `Lock()`. It no longer does — lock overrides
+  are saved state. Call `Unlock()` or `ResetSavedUnlocks()`.
+- Forgetting to call `SetSaveProfile()` when loading a save game, so every slot writes to
+  the same `unlocks.json`.

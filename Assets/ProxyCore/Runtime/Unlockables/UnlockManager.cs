@@ -9,9 +9,15 @@ namespace ProxyCore {
     /// <summary>
     /// Global manager for all unlock state in the game.
     ///
-    /// Tracks two independent sets of unlock keys:
+    /// Tracks three sets of unlock keys:
     ///   _savedUnlocked   — written to disk; survives across game sessions.
     ///   _sessionUnlocked — in-memory only; cleared on every scene reload.
+    ///   _lockedOverrides — keys explicitly locked via Lock(); outranks IsUnlockedByDefault.
+    ///                      Written to disk with _savedUnlocked. Unlock() clears the override,
+    ///                      so Lock() and Unlock() are symmetric.
+    ///
+    /// Call SetSaveProfile() to point disk state at a per-save-game file
+    /// ("unlocks_{profile}.json" instead of the shared "unlocks.json").
     ///
     /// Assign EventMessage assets to onUnlocked / onLocked to broadcast state changes
     /// through the ProxyCore EventCoordinator. Both fields are optional and null-guarded.
@@ -36,6 +42,9 @@ namespace ProxyCore {
         private HashSet<string> _savedUnlocked = new HashSet<string>();
         private HashSet<string> _sessionUnlocked = new HashSet<string>();
         // Keys that were explicitly locked via Lock() — overrides IsUnlockedByDefault.
+        // Persisted alongside _savedUnlocked; cleared by Unlock() or ResetSavedUnlocks().
+        // ponytail: one shared override set. Split into saved/session sets only if
+        // session-only locks must stop persisting.
         private HashSet<string> _lockedOverrides = new HashSet<string>();
 
         [Header("Auto-unlock Registries")]
@@ -55,8 +64,18 @@ namespace ProxyCore {
             public bool Enabled = true;
         }
 
-        private static string SavePath =>
-            Path.Combine(Application.persistentDataPath, "unlocks.json");
+        private static string _saveProfile = "";
+
+        /// <summary>
+        /// Id of the active save profile. Empty (the default) reads and writes
+        /// "unlocks.json"; any other value reads and writes "unlocks_{profile}.json".
+        /// Set it with <see cref="SetSaveProfile"/>.
+        /// </summary>
+        public static string SaveProfile => _saveProfile;
+
+        private static string SavePath => Path.Combine(
+            Application.persistentDataPath,
+            string.IsNullOrEmpty(_saveProfile) ? "unlocks.json" : $"unlocks_{_saveProfile}.json");
 
         #endregion
 
@@ -79,8 +98,9 @@ namespace ProxyCore {
 
         protected override void OnSceneReload() {
             base.OnSceneReload();
+            // Only session state resets here. _lockedOverrides is saved state — it is
+            // reloaded from disk with _savedUnlocked and cleared by Unlock()/ResetSavedUnlocks().
             _sessionUnlocked.Clear();
-            _lockedOverrides.Clear();
         }
 
         #endregion
@@ -97,15 +117,25 @@ namespace ProxyCore {
 
         #region Public API — IUnlockable overloads
 
+        /// <summary>
+        /// Unlocks the item and clears any explicit lock override on it.
+        /// Unlock() always reverses a previous Lock() — the two are symmetric.
+        /// </summary>
         public static void Unlock(IUnlockable item) =>
             UnlockByKey(item.UnlockKey, item.SavesAcrossSessions);
 
+        /// <summary>
+        /// Locks the item explicitly. The override outranks IsUnlockedByDefault and persists
+        /// across sessions; clear it with <see cref="Unlock(IUnlockable)"/> or
+        /// <see cref="ResetSavedUnlocks"/>.
+        /// </summary>
         public static void Lock(IUnlockable item) =>
             LockByKey(item.UnlockKey, item.SavesAcrossSessions);
 
         /// <summary>
         /// Returns true when the item is explicitly unlocked OR unlocked by default.
-        /// An explicit Lock() call takes precedence and will return false even if IsUnlockedByDefault is true.
+        /// An explicit Lock() call takes precedence and will return false even if IsUnlockedByDefault is true,
+        /// until a subsequent Unlock() clears the override.
         /// </summary>
         public static bool IsUnlocked(IUnlockable item) {
             var inst = Instance;
@@ -120,40 +150,46 @@ namespace ProxyCore {
 
         #region Public API — Key overloads
 
+        /// <summary>
+        /// Unlocks a key and clears any explicit lock override on it, so Unlock() always
+        /// reverses a previous Lock(). Broadcasts onUnlocked when either changes.
+        /// </summary>
         public static void UnlockByKey(string key, bool savesAcrossSessions) {
             var inst = Instance;
             if (inst == null) return;
-            if (savesAcrossSessions) {
-                if (inst._savedUnlocked.Add(key)) {
-                    inst.Save();
-                    inst.BroadcastUnlocked(key);
-                    EvaluateAutoTriggers();
-                }
-            }
-            else {
-                if (inst._sessionUnlocked.Add(key)) {
-                    inst.BroadcastUnlocked(key);
-                    EvaluateAutoTriggers();
-                }
-            }
+
+            // Symmetric with LockByKey: unlocking always clears an explicit lock override.
+            bool clearedOverride = inst._lockedOverrides.Remove(key);
+            bool nowUnlocked = savesAcrossSessions
+                ? inst._savedUnlocked.Add(key)
+                : inst._sessionUnlocked.Add(key);
+            if (!clearedOverride && !nowUnlocked) return;
+
+            if (clearedOverride || savesAcrossSessions) inst.Save();
+            inst.BroadcastUnlocked(key);
+            EvaluateAutoTriggers();
         }
 
+        /// <summary>
+        /// Locks a key: records an explicit override (which outranks IsUnlockedByDefault)
+        /// and drops the key from both unlock sets. Broadcasts onLocked when either changes.
+        /// </summary>
+        /// <param name="savesAcrossSessions">
+        /// Retained for API symmetry with <see cref="UnlockByKey"/>. Lock overrides are always
+        /// persisted, so this no longer selects a storage tier.
+        /// </param>
         public static void LockByKey(string key, bool savesAcrossSessions) {
             var inst = Instance;
             if (inst == null) return;
-            inst._lockedOverrides.Add(key);
 
-            bool changed;
-            if (savesAcrossSessions) {
-                changed = inst._savedUnlocked.Remove(key);
-                if (changed) inst.Save();
-            }
-            else {
-                changed = inst._sessionUnlocked.Remove(key);
-            }
+            bool addedOverride = inst._lockedOverrides.Add(key);
+            // "Locked" means "not unlocked" — clear both sets so IsUnlockedByKey agrees with IsUnlocked.
+            bool removedSaved = inst._savedUnlocked.Remove(key);
+            bool removedSession = inst._sessionUnlocked.Remove(key);
+            if (!addedOverride && !removedSaved && !removedSession) return;
 
-            if (changed)
-                inst.BroadcastLocked(key);
+            inst.Save();
+            inst.BroadcastLocked(key);
         }
 
         public static bool IsUnlockedByKey(string key) {
@@ -173,21 +209,25 @@ namespace ProxyCore {
         public static void UnlockAll(IEnumerable<IUnlockable> items) {
             var inst = Instance;
             if (inst == null) return;
-            bool anySaved = false;
+            bool anyPersistedChange = false;
             foreach (var item in items) {
-                inst._lockedOverrides.Remove(item.UnlockKey);
+                bool clearedOverride = inst._lockedOverrides.Remove(item.UnlockKey);
+                anyPersistedChange |= clearedOverride;
                 if (item.SavesAcrossSessions) {
                     if (inst._savedUnlocked.Add(item.UnlockKey)) {
-                        anySaved = true;
+                        anyPersistedChange = true;
+                        inst.BroadcastUnlocked(item.UnlockKey);
+                    }
+                    else if (clearedOverride) {
                         inst.BroadcastUnlocked(item.UnlockKey);
                     }
                 }
                 else {
-                    if (inst._sessionUnlocked.Add(item.UnlockKey))
+                    if (inst._sessionUnlocked.Add(item.UnlockKey) || clearedOverride)
                         inst.BroadcastUnlocked(item.UnlockKey);
                 }
             }
-            if (anySaved) inst.Save();
+            if (anyPersistedChange) inst.Save();
             EvaluateAutoTriggers();
         }
 
@@ -197,21 +237,17 @@ namespace ProxyCore {
         public static void LockAll(IEnumerable<IUnlockable> items) {
             var inst = Instance;
             if (inst == null) return;
-            bool anySaved = false;
+            bool anyPersistedChange = false;
             foreach (var item in items) {
-                inst._lockedOverrides.Add(item.UnlockKey);
-                if (item.SavesAcrossSessions) {
-                    if (inst._savedUnlocked.Remove(item.UnlockKey)) {
-                        anySaved = true;
-                        inst.BroadcastLocked(item.UnlockKey);
-                    }
-                }
-                else {
-                    if (inst._sessionUnlocked.Remove(item.UnlockKey))
-                        inst.BroadcastLocked(item.UnlockKey);
-                }
+                bool addedOverride = inst._lockedOverrides.Add(item.UnlockKey);
+                bool removedSaved = inst._savedUnlocked.Remove(item.UnlockKey);
+                bool removedSession = inst._sessionUnlocked.Remove(item.UnlockKey);
+                if (!addedOverride && !removedSaved && !removedSession) continue;
+
+                anyPersistedChange = true;
+                inst.BroadcastLocked(item.UnlockKey);
             }
-            if (anySaved) inst.Save();
+            if (anyPersistedChange) inst.Save();
         }
 
         /// <summary>
@@ -220,21 +256,25 @@ namespace ProxyCore {
         public static void UnlockAllByKeys(IEnumerable<(string key, bool savesAcrossSessions)> entries) {
             var inst = Instance;
             if (inst == null) return;
-            bool anySaved = false;
+            bool anyPersistedChange = false;
             foreach (var (key, saves) in entries) {
-                inst._lockedOverrides.Remove(key);
+                bool clearedOverride = inst._lockedOverrides.Remove(key);
+                anyPersistedChange |= clearedOverride;
                 if (saves) {
                     if (inst._savedUnlocked.Add(key)) {
-                        anySaved = true;
+                        anyPersistedChange = true;
+                        inst.BroadcastUnlocked(key);
+                    }
+                    else if (clearedOverride) {
                         inst.BroadcastUnlocked(key);
                     }
                 }
                 else {
-                    if (inst._sessionUnlocked.Add(key))
+                    if (inst._sessionUnlocked.Add(key) || clearedOverride)
                         inst.BroadcastUnlocked(key);
                 }
             }
-            if (anySaved) inst.Save();
+            if (anyPersistedChange) inst.Save();
             EvaluateAutoTriggers();
         }
 
@@ -244,21 +284,17 @@ namespace ProxyCore {
         public static void LockAllByKeys(IEnumerable<(string key, bool savesAcrossSessions)> entries) {
             var inst = Instance;
             if (inst == null) return;
-            bool anySaved = false;
+            bool anyPersistedChange = false;
             foreach (var (key, saves) in entries) {
-                inst._lockedOverrides.Add(key);
-                if (saves) {
-                    if (inst._savedUnlocked.Remove(key)) {
-                        anySaved = true;
-                        inst.BroadcastLocked(key);
-                    }
-                }
-                else {
-                    if (inst._sessionUnlocked.Remove(key))
-                        inst.BroadcastLocked(key);
-                }
+                bool addedOverride = inst._lockedOverrides.Add(key);
+                bool removedSaved = inst._savedUnlocked.Remove(key);
+                bool removedSession = inst._sessionUnlocked.Remove(key);
+                if (!addedOverride && !removedSaved && !removedSession) continue;
+
+                anyPersistedChange = true;
+                inst.BroadcastLocked(key);
             }
-            if (anySaved) inst.Save();
+            if (anyPersistedChange) inst.Save();
         }
 
         #endregion
@@ -300,25 +336,61 @@ namespace ProxyCore {
         }
 
         /// <summary>
-        /// Clears all saved (cross-session) unlock state and deletes the save file from disk.
-        /// Session unlocks and locked overrides are unaffected.
+        /// Clears all saved state — cross-session unlocks and explicit lock overrides —
+        /// and deletes the active profile's save file from disk. Session unlocks are unaffected.
         /// </summary>
         public static void ResetSavedUnlocks() {
             var inst = Instance;
             if (inst == null) return;
             inst._savedUnlocked.Clear();
+            inst._lockedOverrides.Clear();
             if (File.Exists(SavePath))
                 File.Delete(SavePath);
         }
 
         /// <summary>
-        /// Clears all session-only unlock state. Saved (cross-session) state is unaffected.
+        /// Clears all session-only unlock state. Saved state (cross-session unlocks and
+        /// lock overrides) is unaffected — call Unlock() to clear an override, or
+        /// <see cref="ResetSavedUnlocks"/> to clear them all.
         /// </summary>
         public static void ResetSessionUnlocks() {
             var inst = Instance;
             if (inst == null) return;
             inst._sessionUnlocked.Clear();
+        }
+
+        /// <summary>
+        /// Switches the active save profile, so unlock state reads and writes
+        /// "unlocks_{profileId}.json" instead of the shared "unlocks.json".
+        /// Use one profile per save game. All in-memory state is discarded and the new
+        /// profile is loaded from disk.
+        /// </summary>
+        /// <param name="profileId">
+        /// Profile id. Characters that are illegal in a filename are replaced with '_'.
+        /// Pass null or empty to return to the default "unlocks.json".
+        /// </param>
+        public static void SetSaveProfile(string profileId) {
+            string sanitized = SanitizeProfileId(profileId);
+            if (sanitized == _saveProfile) return;
+            _saveProfile = sanitized;
+
+            var inst = Instance;
+            if (inst == null) return;
+            inst._savedUnlocked.Clear();
+            inst._sessionUnlocked.Clear();
             inst._lockedOverrides.Clear();
+            inst.Load();
+            EvaluateAutoTriggers();
+        }
+
+        private static string SanitizeProfileId(string profileId) {
+            if (string.IsNullOrWhiteSpace(profileId)) return "";
+            var chars = profileId.Trim().ToCharArray();
+            foreach (char invalid in Path.GetInvalidFileNameChars()) {
+                for (int i = 0; i < chars.Length; i++)
+                    if (chars[i] == invalid) chars[i] = '_';
+            }
+            return new string(chars);
         }
 
         #endregion
@@ -328,20 +400,30 @@ namespace ProxyCore {
         private void Save() {
             var data = new UnlockSaveData();
             data.savedUnlockedKeys.AddRange(_savedUnlocked);
+            data.lockedOverrideKeys.AddRange(_lockedOverrides);
             File.WriteAllText(SavePath, JsonUtility.ToJson(data, prettyPrint: true));
         }
 
         private void Load() {
             _savedUnlocked.Clear();
+            _lockedOverrides.Clear();
             if (!File.Exists(SavePath))
                 return;
 
             var data = JsonUtility.FromJson<UnlockSaveData>(File.ReadAllText(SavePath));
-            if (data?.savedUnlockedKeys == null)
+            if (data == null)
                 return;
 
-            foreach (var key in data.savedUnlockedKeys)
-                _savedUnlocked.Add(key);
+            if (data.savedUnlockedKeys != null) {
+                foreach (var key in data.savedUnlockedKeys)
+                    _savedUnlocked.Add(key);
+            }
+
+            // Absent in files written before lock overrides were persisted — loads as empty.
+            if (data.lockedOverrideKeys != null) {
+                foreach (var key in data.lockedOverrideKeys)
+                    _lockedOverrides.Add(key);
+            }
         }
 
         #endregion
@@ -383,7 +465,10 @@ namespace ProxyCore {
 
                             if (ArePrerequisitesMet(prereqs)) {
                                 Unlock(unlockable);
-                                anyNew = true;
+                                // Only count it if state actually moved. Without this, an item
+                                // that stays locked after Unlock() re-qualifies every pass and
+                                // spins the do/while loop forever.
+                                if (IsUnlocked(unlockable)) anyNew = true;
                             }
                         }
                     }

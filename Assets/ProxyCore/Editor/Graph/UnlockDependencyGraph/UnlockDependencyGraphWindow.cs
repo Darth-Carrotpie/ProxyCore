@@ -22,7 +22,9 @@ namespace ProxyCore.Editor.Graph {
         private const string PREF_CONDITIONS_EXTRAS = "ProxyCore_UnlockGraph_ConditionsExtraPaths";
         private const string PREF_LAYOUT_DATA_PATH = "ProxyCore_UnlockGraph_LayoutDataPath";
         private const string PREF_LAYOUT_DATA_EXTRAS = "ProxyCore_UnlockGraph_LayoutDataExtraPaths";
-        private const string PREF_DISABLED_REGISTRIES = "ProxyCore_UnlockGraph_DisabledRegistries";
+        // Which graph this machine last had open. The graph's own contents (registry
+        // filter, save slots) live on the asset so they are shared with the team.
+        private const string PREF_ACTIVE_GRAPH_GUID = "ProxyCore_UnlockGraph_ActiveGraphGuid";
 
         private const string DEFAULT_DEFINITIONS_PATH = "Assets/Data/Unlockables/Definitions";
         private const string DEFAULT_CONDITIONS_PATH = "Assets/Data/Unlockables/Conditions";
@@ -32,6 +34,7 @@ namespace ProxyCore.Editor.Graph {
         private UnlockGraphView _graphView;
         private UnlockGraphLayoutData _layoutData;
         private List<RegistryCatalogEntry> _catalogEntries = new();
+        private List<UnlockGraphLayoutData> _availableGraphs = new();
 
         // Path management (EventManagerWindow pattern)
         private List<string> _defKnownPaths = new();
@@ -93,10 +96,13 @@ namespace ProxyCore.Editor.Graph {
         private void CreateGUI() {
             // Load or create layout data
             _layoutData = FindOrCreateLayoutData();
+            ApplyActiveSaveProfile();
 
             // Discover registries
             RefreshCatalogEntries();
             RefreshKnownPaths();
+
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
 
             // Build UI
             var root = rootVisualElement;
@@ -140,12 +146,37 @@ namespace ProxyCore.Editor.Graph {
             }
         }
 
+        private void OnDisable() {
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+        }
+
         private void OnFocus() {
             // Refresh when the window is focused
             if (_graphView != null) {
                 RefreshCatalogEntries();
                 RefreshKnownPaths();
+                _graphView.RefreshAllBadges();
             }
+        }
+
+        private void OnPlayModeStateChanged(PlayModeStateChange state) {
+            // Statics reset on domain reload, so the graph's profile must be re-applied
+            // once play mode has actually started.
+            if (state == PlayModeStateChange.EnteredPlayMode
+                || state == PlayModeStateChange.EnteredEditMode) {
+                ApplyActiveSaveProfile();
+                _graphView?.RefreshAllBadges();
+                Repaint();
+            }
+        }
+
+        /// <summary>
+        /// Points UnlockManager at the active graph's selected save slot, so unlock state
+        /// read and written from this window lands in that save's own file.
+        /// </summary>
+        private void ApplyActiveSaveProfile() {
+            if (_layoutData == null) return;
+            UnlockManager.SetSaveProfile(_layoutData.ActiveSaveProfile);
         }
 
         private void OnGraphChanged() {
@@ -186,8 +217,26 @@ namespace ProxyCore.Editor.Graph {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
 
             // Title
-            GUILayout.Label("Unlock Dependency Graph", EditorStyles.boldLabel,
-                GUILayout.Width(180));
+            GUILayout.Label("Unlock Graph", EditorStyles.boldLabel,
+                GUILayout.Width(90));
+
+            // Graph picker — each graph is a separate progression tree (typically a level)
+            string graphLabel = _layoutData != null ? _layoutData.DisplayLabel : "<none>";
+            if (GUILayout.Button(new GUIContent($"{graphLabel} ▾", "Switch, create, or delete unlock graphs"),
+                    EditorStyles.toolbarDropDown, GUILayout.Width(140))) {
+                ShowGraphMenu();
+            }
+
+            // Save slot picker — each slot is its own runtime save file
+            using (new EditorGUI.DisabledScope(_layoutData == null)) {
+                string slotLabel = _layoutData != null ? _layoutData.ActiveSlot : "—";
+                if (GUILayout.Button(new GUIContent($"💾 {slotLabel} ▾", "Switch, create, or delete save slots for this graph"),
+                        EditorStyles.toolbarDropDown, GUILayout.Width(120))) {
+                    ShowSaveSlotMenu();
+                }
+            }
+
+            GUILayout.Space(4);
 
             // Registry filter
             if (GUILayout.Button("Registries ▾", EditorStyles.toolbarDropDown,
@@ -544,6 +593,214 @@ namespace ProxyCore.Editor.Graph {
         }
 
         // ════════════════════════════════════════════════════════════════
+        // Graph picker — create / switch / duplicate / delete
+        // ════════════════════════════════════════════════════════════════
+
+        private void ShowGraphMenu() {
+            RefreshAvailableGraphs();
+
+            var menu = new GenericMenu();
+            foreach (var graph in _availableGraphs) {
+                var g = graph; // capture
+                menu.AddItem(new GUIContent(g.DisplayLabel), g == _layoutData, () => SwitchToGraph(g));
+            }
+
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent("New Graph…"), false, CreateNewGraph);
+
+            if (_layoutData != null) {
+                menu.AddItem(new GUIContent("Duplicate Graph"), false, DuplicateActiveGraph);
+                menu.AddItem(new GUIContent("Rename Graph…"), false, RenameActiveGraph);
+                if (_availableGraphs.Count > 1)
+                    menu.AddItem(new GUIContent("Delete Graph…"), false, DeleteActiveGraph);
+                else
+                    menu.AddDisabledItem(new GUIContent("Delete Graph…"));
+            }
+
+            menu.ShowAsContext();
+        }
+
+        private void RefreshAvailableGraphs() {
+            _availableGraphs.Clear();
+            foreach (string guid in AssetDatabase.FindAssets("t:UnlockGraphLayoutData")) {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                var asset = AssetDatabase.LoadAssetAtPath<UnlockGraphLayoutData>(path);
+                if (asset != null) _availableGraphs.Add(asset);
+            }
+            _availableGraphs = _availableGraphs.OrderBy(g => g.DisplayLabel).ToList();
+        }
+
+        private void SwitchToGraph(UnlockGraphLayoutData graph) {
+            if (graph == null || graph == _layoutData) return;
+
+            _layoutData = graph;
+            EditorPrefs.SetString(PREF_ACTIVE_GRAPH_GUID, GetAssetGuid(graph));
+            ApplyActiveSaveProfile();
+            RefreshCatalogEntries();
+            RebuildGraph();
+            Repaint();
+        }
+
+        private void CreateNewGraph() {
+            string graphName = EditorInputDialog.Show("New Unlock Graph",
+                "Name for the new graph (typically a level name):", "Level");
+            if (string.IsNullOrWhiteSpace(graphName)) return;
+
+            var data = CreateInstance<UnlockGraphLayoutData>();
+            data.displayName = graphName.Trim();
+            SwitchToGraph(CreateGraphAsset(data, graphName.Trim()));
+        }
+
+        private void DuplicateActiveGraph() {
+            if (_layoutData == null) return;
+
+            string sourcePath = AssetDatabase.GetAssetPath(_layoutData);
+            var copy = Instantiate(_layoutData);
+            // A duplicate is a new graph: it needs its own id so it gets its own save files.
+            copy.ResetGraphId();
+            copy.displayName = _layoutData.DisplayLabel + " Copy";
+
+            string dir = string.IsNullOrEmpty(sourcePath)
+                ? GetSelectedLayoutDataPath()
+                : System.IO.Path.GetDirectoryName(sourcePath)?.Replace('\\', '/');
+            SwitchToGraph(CreateGraphAsset(copy, copy.displayName, dir));
+        }
+
+        private void RenameActiveGraph() {
+            if (_layoutData == null) return;
+
+            string newName = EditorInputDialog.Show("Rename Unlock Graph",
+                "New display name:", _layoutData.DisplayLabel);
+            if (string.IsNullOrWhiteSpace(newName)) return;
+
+            Undo.RecordObject(_layoutData, "Rename unlock graph");
+            _layoutData.displayName = newName.Trim();
+            EditorUtility.SetDirty(_layoutData);
+            MarkDirty();
+            Repaint();
+        }
+
+        private void DeleteActiveGraph() {
+            if (_layoutData == null || _availableGraphs.Count <= 1) return;
+
+            string path = AssetDatabase.GetAssetPath(_layoutData);
+            if (!EditorUtility.DisplayDialog("Delete Unlock Graph",
+                    $"Delete '{_layoutData.DisplayLabel}'?\n\n{path}\n\n" +
+                    "This removes the graph's layout, groups, and save-slot list. " +
+                    "Definitions, conditions, and save files on disk are not touched.",
+                    "Delete", "Cancel"))
+                return;
+
+            var replacement = _availableGraphs.FirstOrDefault(g => g != _layoutData);
+            AssetDatabase.DeleteAsset(path);
+            AssetDatabase.SaveAssets();
+
+            _layoutData = null;
+            SwitchToGraph(replacement);
+        }
+
+        private UnlockGraphLayoutData CreateGraphAsset(UnlockGraphLayoutData data,
+            string fileName, string targetDir = null) {
+            targetDir ??= GetSelectedLayoutDataPath();
+            UnlockGraphView.EnsureFolderExists(targetDir);
+
+            string safeName = string.Join("_", fileName.Split(System.IO.Path.GetInvalidFileNameChars()));
+            string assetPath = AssetDatabase.GenerateUniqueAssetPath($"{targetDir}/{safeName}.asset");
+            AssetDatabase.CreateAsset(data, assetPath);
+            AssetDatabase.SaveAssets();
+            return data;
+        }
+
+        private static string GetAssetGuid(UnityEngine.Object asset) =>
+            asset == null ? "" : AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(asset));
+
+        // ════════════════════════════════════════════════════════════════
+        // Save slots — one runtime save file per slot, per graph
+        // ════════════════════════════════════════════════════════════════
+
+        private void ShowSaveSlotMenu() {
+            if (_layoutData == null) return;
+
+            var menu = new GenericMenu();
+            for (int i = 0; i < _layoutData.saveSlots.Count; i++) {
+                int idx = i; // capture
+                menu.AddItem(new GUIContent(_layoutData.saveSlots[i]),
+                    idx == _layoutData.activeSlotIndex,
+                    () => SelectSaveSlot(idx));
+            }
+
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent("New Save…"), false, CreateSaveSlot);
+            if (_layoutData.saveSlots.Count > 1)
+                menu.AddItem(new GUIContent("Delete Save…"), false, DeleteActiveSaveSlot);
+            else
+                menu.AddDisabledItem(new GUIContent("Delete Save…"));
+
+            menu.ShowAsContext();
+        }
+
+        private void SelectSaveSlot(int index) {
+            if (_layoutData == null || index == _layoutData.activeSlotIndex) return;
+
+            Undo.RecordObject(_layoutData, "Change save slot");
+            _layoutData.activeSlotIndex = index;
+            EditorUtility.SetDirty(_layoutData);
+            MarkDirty();
+
+            ApplyActiveSaveProfile();
+            _graphView?.RefreshAllBadges();
+            Repaint();
+        }
+
+        private void CreateSaveSlot() {
+            if (_layoutData == null) return;
+
+            string slotName = EditorInputDialog.Show("New Save",
+                "Name for the new save:", $"Save {_layoutData.saveSlots.Count + 1}");
+            if (string.IsNullOrWhiteSpace(slotName)) return;
+
+            slotName = slotName.Trim();
+            if (_layoutData.saveSlots.Contains(slotName)) {
+                EditorUtility.DisplayDialog("Duplicate Save Name",
+                    $"'{slotName}' already exists in this graph.", "OK");
+                return;
+            }
+
+            Undo.RecordObject(_layoutData, "Add save slot");
+            _layoutData.saveSlots.Add(slotName);
+            EditorUtility.SetDirty(_layoutData);
+            MarkDirty();
+
+            SelectSaveSlot(_layoutData.saveSlots.Count - 1);
+        }
+
+        private void DeleteActiveSaveSlot() {
+            if (_layoutData == null || _layoutData.saveSlots.Count <= 1) return;
+
+            string slot = _layoutData.ActiveSlot;
+            if (!EditorUtility.DisplayDialog("Delete Save",
+                    $"Delete save '{slot}' from '{_layoutData.DisplayLabel}'?\n\n" +
+                    "Its unlock state on disk is erased.",
+                    "Delete", "Cancel"))
+                return;
+
+            // Erase the runtime file for this slot while it is still the active profile.
+            ApplyActiveSaveProfile();
+            UnlockManager.ResetSavedUnlocks();
+
+            Undo.RecordObject(_layoutData, "Delete save slot");
+            _layoutData.saveSlots.RemoveAt(_layoutData.activeSlotIndex);
+            _layoutData.activeSlotIndex = Mathf.Clamp(_layoutData.activeSlotIndex, 0,
+                _layoutData.saveSlots.Count - 1);
+            EditorUtility.SetDirty(_layoutData);
+            MarkDirty();
+
+            ApplyActiveSaveProfile();
+            _graphView?.RefreshAllBadges();
+            Repaint();
+        }
+
+        // ════════════════════════════════════════════════════════════════
         // Search filter
         // ════════════════════════════════════════════════════════════════
 
@@ -776,7 +1033,11 @@ namespace ProxyCore.Editor.Graph {
         // ════════════════════════════════════════════════════════════════
 
         private void RefreshCatalogEntries() {
-            var disabled = LoadDisabledRegistries();
+            // The filter lives on the graph asset, not EditorPrefs: it is what scopes a
+            // graph to its level, so it must travel with the graph and with the team.
+            var disabled = _layoutData != null
+                ? new HashSet<string>(_layoutData.disabledRegistryNames, StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>();
             _catalogEntries.Clear();
 
             string[] guids = AssetDatabase.FindAssets("t:ScriptableObject");
@@ -795,17 +1056,16 @@ namespace ProxyCore.Editor.Graph {
             _catalogEntries = _catalogEntries.OrderBy(e => e.Name).ToList();
         }
 
-        private HashSet<string> LoadDisabledRegistries() {
-            string raw = EditorPrefs.GetString(PREF_DISABLED_REGISTRIES, "");
-            if (string.IsNullOrEmpty(raw)) return new HashSet<string>();
-            return new HashSet<string>(raw.Split(';'), StringComparer.OrdinalIgnoreCase);
-        }
-
         private void SaveDisabledRegistries() {
-            var disabled = _catalogEntries
+            if (_layoutData == null) return;
+
+            Undo.RecordObject(_layoutData, "Change graph registry filter");
+            _layoutData.disabledRegistryNames = _catalogEntries
                 .Where(e => !e.Enabled)
-                .Select(e => e.Name);
-            EditorPrefs.SetString(PREF_DISABLED_REGISTRIES, string.Join(";", disabled));
+                .Select(e => e.Name)
+                .ToList();
+            EditorUtility.SetDirty(_layoutData);
+            MarkDirty();
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -851,23 +1111,25 @@ namespace ProxyCore.Editor.Graph {
         // ════════════════════════════════════════════════════════════════
 
         private UnlockGraphLayoutData FindOrCreateLayoutData() {
-            string targetDir = GetSelectedLayoutDataPath();
+            RefreshAvailableGraphs();
 
-            // Look for existing layout data in the target directory
-            string[] guids = AssetDatabase.FindAssets("t:UnlockGraphLayoutData");
-            foreach (string guid in guids) {
-                string path = AssetDatabase.GUIDToAssetPath(guid);
-                var candidate = AssetDatabase.LoadAssetAtPath<UnlockGraphLayoutData>(path);
-                if (candidate != null) return candidate;
+            // Prefer the graph this machine last had open.
+            string activeGuid = EditorPrefs.GetString(PREF_ACTIVE_GRAPH_GUID, "");
+            if (!string.IsNullOrEmpty(activeGuid)) {
+                var remembered = AssetDatabase.LoadAssetAtPath<UnlockGraphLayoutData>(
+                    AssetDatabase.GUIDToAssetPath(activeGuid));
+                if (remembered != null) return remembered;
             }
 
-            // Create new layout data at the configured path
-            var data = CreateInstance<UnlockGraphLayoutData>();
-            UnlockGraphView.EnsureFolderExists(targetDir);
-            string assetPath = AssetDatabase.GenerateUniqueAssetPath(
-                $"{targetDir}/UnlockGraphLayoutData.asset");
-            AssetDatabase.CreateAsset(data, assetPath);
-            AssetDatabase.SaveAssets();
+            if (_availableGraphs.Count > 0) {
+                EditorPrefs.SetString(PREF_ACTIVE_GRAPH_GUID, GetAssetGuid(_availableGraphs[0]));
+                return _availableGraphs[0];
+            }
+
+            // No graph exists yet — create the first one at the configured path.
+            var data = CreateGraphAsset(CreateInstance<UnlockGraphLayoutData>(), "UnlockGraphLayoutData");
+            EditorPrefs.SetString(PREF_ACTIVE_GRAPH_GUID, GetAssetGuid(data));
+            RefreshAvailableGraphs();
             return data;
         }
     }

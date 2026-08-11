@@ -220,6 +220,24 @@
     background-color: rgba(255, 255, 255, 0.25);
 }
 
+/* ── Quick lock/unlock toggle in the definition node's title bar ───────── */
+.definition-node .definition-toggle-lock-btn {
+    width: 20px;
+    height: 20px;
+    font-size: 11px;
+    -unity-text-align: middle-center;
+    padding: 0;
+    margin: 2px 2px 2px 4px;
+    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-width: 0;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.definition-node .definition-toggle-lock-btn:hover {
+    background-color: rgba(255, 255, 255, 0.25);
+}
+
 /* ── Edges ────────────────────────────────────────────────────────────── */
 .edge-met {
     --edge-color: #5DB85D;

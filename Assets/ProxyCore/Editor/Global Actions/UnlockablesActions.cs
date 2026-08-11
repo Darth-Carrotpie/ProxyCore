@@ -1,27 +1,21 @@
-using System.IO;
 using UnityEditor;
 using UnityEngine;
 
 namespace ProxyCore.Editor {
     public static class UnlockablesActions {
-        private static string SavePath =>
-            Path.Combine(Application.persistentDataPath, "unlocks.json");
-
         [MenuItem("ProxyCore/Unlockable Actions/Clear Save Data")]
         public static void ClearSaveData() {
-            if (Application.isPlaying) {
-                UnlockManager.ResetSavedUnlocks();
-                Debug.Log("ProxyCore: Saved unlock data cleared at runtime.");
+            // Route through the manager in both modes so the active save profile's file is
+            // the one deleted. SingletonSO.Instance resolves via AssetDatabase in Edit Mode.
+            if (UnlockManager.Instance == null) {
+                Debug.LogWarning("ProxyCore: No UnlockManager asset found. Create one via Managers/Unlock Manager.");
+                return;
             }
-            else {
-                if (File.Exists(SavePath)) {
-                    File.Delete(SavePath);
-                    Debug.Log($"ProxyCore: Deleted unlock save file at {SavePath}");
-                }
-                else {
-                    Debug.Log("ProxyCore: No unlock save file found to delete.");
-                }
-            }
+
+            UnlockManager.ResetSavedUnlocks();
+            string profile = string.IsNullOrEmpty(UnlockManager.SaveProfile)
+                ? "default" : UnlockManager.SaveProfile;
+            Debug.Log($"ProxyCore: Saved unlock data cleared (profile: {profile}).");
         }
 
         [MenuItem("ProxyCore/Unlockable Actions/Reset Session Unlocks")]

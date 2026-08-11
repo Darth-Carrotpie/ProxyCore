@@ -4,14 +4,71 @@ using UnityEngine;
 
 namespace ProxyCore.Editor {
     /// <summary>
-    /// Persists graph-only editor metadata: node positions, group assignments,
-    /// group colours, and collapsed state. No runtime impact.
-    /// Keyed by Unity asset GUID so entries survive renames.
+    /// One unlock graph: node positions, group assignments, group colours, collapsed
+    /// state, which registries it shows, and the save slots it maps to at runtime.
+    /// Editor-only metadata — no runtime impact. Keyed by Unity asset GUID so entries
+    /// survive renames.
+    ///
+    /// A project may hold several of these; each one is a separate graph (typically one
+    /// per game level), picked from the Unlock Dependency Graph window's Graph dropdown.
     /// </summary>
     [CreateAssetMenu(fileName = "UnlockGraphLayoutData", menuName = "ProxyCore/Unlock Graph Layout Data")]
     public class UnlockGraphLayoutData : ScriptableObject {
         public List<NodeLayoutEntry> nodes = new List<NodeLayoutEntry>();
         public List<GroupLayoutEntry> groups = new List<GroupLayoutEntry>();
+
+        // ────────────────────────────────────────────────────────────────────────
+        // Graph identity & save slots
+        // ────────────────────────────────────────────────────────────────────────
+
+        [SerializeField, HideInInspector] private string _graphId;
+
+        [Tooltip("Name shown in the graph picker. Falls back to the asset name when empty.")]
+        public string displayName;
+
+        [Tooltip("Save slots for this graph. Each maps to its own runtime save file.")]
+        public List<string> saveSlots = new List<string> { "Default" };
+
+        [Tooltip("Index into saveSlots of the slot currently selected in the graph window.")]
+        public int activeSlotIndex;
+
+        [Tooltip("Registry asset names hidden in this graph. This is what scopes a graph to a level.")]
+        public List<string> disabledRegistryNames = new List<string>();
+
+        /// <summary>
+        /// Stable id used to build this graph's runtime save-profile names.
+        /// Generated once and kept across renames and moves.
+        /// </summary>
+        public string GraphId {
+            get {
+                if (string.IsNullOrEmpty(_graphId)) {
+                    _graphId = System.Guid.NewGuid().ToString("N").Substring(0, 8);
+#if UNITY_EDITOR
+                    UnityEditor.EditorUtility.SetDirty(this);
+#endif
+                }
+                return _graphId;
+            }
+        }
+
+        /// <summary>Label for the graph picker: <see cref="displayName"/> or the asset name.</summary>
+        public string DisplayLabel =>
+            string.IsNullOrWhiteSpace(displayName) ? name : displayName;
+
+        /// <summary>Currently selected save slot name, or "Default" when the list is empty.</summary>
+        public string ActiveSlot =>
+            saveSlots != null && activeSlotIndex >= 0 && activeSlotIndex < saveSlots.Count
+                ? saveSlots[activeSlotIndex]
+                : "Default";
+
+        /// <summary>
+        /// Save-profile id for the active slot — pass to UnlockManager.SetSaveProfile so the
+        /// graph reads and writes its own save file.
+        /// </summary>
+        public string ActiveSaveProfile => $"{GraphId}_{ActiveSlot}";
+
+        /// <summary>Clears the generated id so a duplicated asset becomes its own graph.</summary>
+        public void ResetGraphId() => _graphId = null;
 
         // ────────────────────────────────────────────────────────────────────────
         // Node positions

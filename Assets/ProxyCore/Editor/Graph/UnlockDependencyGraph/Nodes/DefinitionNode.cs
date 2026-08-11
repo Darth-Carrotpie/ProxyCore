@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
@@ -23,6 +23,9 @@ namespace ProxyCore.Editor.Graph {
         public event Action<DefinitionNode, string> OnPassStrategyChanged;
         public event Action<DefinitionNode, ConditionMode> OnPrerequisiteModeChanged;
 
+        /// <summary>Fired after the corner button locks or unlocks this definition.</summary>
+        public event Action<DefinitionNode> OnUnlockStateToggled;
+
         public sealed class PassStrategyChoice {
             public string StrategyId;
             public string Label;
@@ -38,6 +41,7 @@ namespace ProxyCore.Editor.Graph {
         private PopupField<string> _conditionModeDropdown;
         private PopupField<PassStrategyChoice> _passModePopup;
         private VisualElement _colorSwatch;
+        private Button _toggleLockButton;
         private Color _typeColor;
         private string _selectedPassStrategyId;
         private List<PassStrategyChoice> _passStrategyChoices;
@@ -74,6 +78,16 @@ namespace ProxyCore.Editor.Graph {
             _colorSwatch.style.backgroundColor = new StyleColor(_typeColor);
             _colorSwatch.RegisterCallback<MouseDownEvent>(OnSwatchClicked);
             titleContainer.Insert(0, _colorSwatch);
+
+            // Quick lock/unlock — corner button in the node's title bar.
+            if (definition is IUnlockable) {
+                _toggleLockButton = new Button(ToggleUnlockState);
+                _toggleLockButton.AddToClassList("definition-toggle-lock-btn");
+                // Swallow the mouse-down so the node's double-click ping and the
+                // SelectionDragger don't also react to a click on the button.
+                _toggleLockButton.RegisterCallback<MouseDownEvent>(evt => evt.StopPropagation());
+                titleButtonContainer.Insert(0, _toggleLockButton);
+            }
 
             // Pass-state behavior can be switched per-node when multiple
             // compatible strategies are registered for this definition type.
@@ -130,10 +144,7 @@ namespace ProxyCore.Editor.Graph {
                 BuildConditionModeUI(hasPrereqs.PrerequisiteMode);
             }
 
-            // Unlocked-by-default visual class
-            if (definition is IUnlockable unlockable && unlockable.IsUnlockedByDefault)
-                AddToClassList("unlocked-by-default");
-
+            // Sets the badge, the toggle button, and the unlocked-by-default class.
             RefreshBadge();
 
             // Ports
@@ -274,14 +285,47 @@ namespace ProxyCore.Editor.Graph {
             OnPrerequisiteModeChanged?.Invoke(this, newMode);
         }
 
+        // ── Lock state ───────────────────────────────────────────────────
+
+        private const string ICON_UNLOCKED = "🔓";
+        private const string ICON_LOCKED = "🔒";
+
+        private void ToggleUnlockState() {
+            if (Definition is not IUnlockable unlockable) return;
+
+            if (UnlockManager.IsUnlocked(unlockable))
+                UnlockManager.Lock(unlockable);
+            else
+                UnlockManager.Unlock(unlockable);
+
+            RefreshBadge();
+            // An unlock can cascade through auto-unlock chains, so the view refreshes
+            // every other node too.
+            OnUnlockStateToggled?.Invoke(this);
+        }
+
+        /// <summary>
+        /// Re-reads live unlock state onto the badge and the toggle button.
+        /// Works in Edit Mode as well as Play Mode — SingletonSO resolves the
+        /// UnlockManager asset through AssetDatabase when not playing.
+        /// </summary>
         public void RefreshBadge() {
-            if (Definition is IUnlockable unlockable) {
-                if (unlockable.IsUnlockedByDefault)
-                    _badgeLabel.text = "\u2699"; // ⚙
-                else if (Application.isPlaying && UnlockManager.IsUnlocked(unlockable))
-                    _badgeLabel.text = "\uD83D\uDD13"; // 🔓
-                else
-                    _badgeLabel.text = "\uD83D\uDD12"; // 🔒
+            if (Definition is not IUnlockable unlockable) return;
+
+            bool unlocked = UnlockManager.IsUnlocked(unlockable);
+            _badgeLabel.text = unlocked ? ICON_UNLOCKED : ICON_LOCKED;
+            _badgeLabel.tooltip = unlockable.IsUnlockedByDefault
+                ? "Unlocked by default" + (unlocked ? "" : " — overridden by an explicit Lock()")
+                : null;
+
+            // The class still marks "unlocked by default"; an explicit lock does not change that.
+            EnableInClassList("unlocked-by-default", unlockable.IsUnlockedByDefault);
+
+            if (_toggleLockButton != null) {
+                _toggleLockButton.text = unlocked ? ICON_UNLOCKED : ICON_LOCKED;
+                _toggleLockButton.tooltip = unlocked
+                    ? "Lock this definition"
+                    : "Unlock this definition";
             }
         }
     }

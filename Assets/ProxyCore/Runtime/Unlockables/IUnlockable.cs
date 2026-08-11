@@ -28,7 +28,8 @@ namespace ProxyCore
         /// <summary>
         /// When true, this item is treated as unlocked even without an explicit Unlock() call.
         /// Use this for content that is available from the start unless deliberately locked.
-        /// Note: an explicit Lock() call overrides this default.
+        /// Note: an explicit Lock() call overrides this default and persists across sessions.
+        /// The override is symmetric — a later Unlock() clears it and restores access.
         /// </summary>
         bool IsUnlockedByDefault { get; }
     }
