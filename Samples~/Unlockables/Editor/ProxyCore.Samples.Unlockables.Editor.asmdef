@@ -1,0 +1,20 @@
+{
+    "name": "ProxyCore.Samples.Unlockables.Editor",
+    "rootNamespace": "",
+    "references": [
+        "GUID:743e714a170ec4247bde9d621adf18a9",
+        "GUID:80a2fc9b0a051264bae9d714a9567186",
+        "GUID:2eb2f82c35e3363489360e06509bd465"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
