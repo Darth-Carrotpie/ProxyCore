@@ -1,0 +1,14 @@
+{
+    "schemaVersion": 1,
+    "skillId": "proxycore",
+    "packageId": "com.shakotis.proxycore",
+    "packageVersion": "development",
+    "target": "openai-codex",
+    "contentHash": "128EDAC7DE019D8FDB589F31283B4CBC3BF0D1BC3B71638FF5A4F38BBA00E275",
+    "managedFiles": [
+        "SKILL.md",
+        "references/definitions-and-registries.md",
+        "references/events.md",
+        "references/unlockables.md"
+    ]
+}
