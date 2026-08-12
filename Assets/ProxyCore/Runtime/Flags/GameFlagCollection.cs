@@ -24,7 +24,7 @@ namespace ProxyCore {
     /// </summary>
     [CreateAssetMenu(fileName = "GameFlagCollection",
         menuName = "Flags/Game Flag Collection")]
-    public class GameFlagCollection : ScriptableObject {
+    public class GameFlagCollection : ScriptableObject, IProfileScopedStore {
         [Header("Declared Flags")]
         [Tooltip("All flags that belong to this collection. Declare every flag name here before using it at runtime.")]
         [SerializeField] private List<string> _definedFlags = new List<string>();
@@ -46,6 +46,29 @@ namespace ProxyCore {
         private Dictionary<string, bool> State => _state ?? (_state = new Dictionary<string, bool>());
 
         private void OnEnable() {
+            SaveProfile.Register(this);
+            _state = new Dictionary<string, bool>();
+            if (_savesAcrossSessions) Load();
+        }
+
+        private void OnDisable() {
+            SaveProfile.Unregister(this);
+        }
+
+        // ------------------------------------------------------------------ //
+        //  IProfileScopedStore                                                 //
+        // ------------------------------------------------------------------ //
+
+        /// <summary>Flushes flag state to the current profile. Ignores the autosave setting.</summary>
+        void IProfileScopedStore.OnProfileChanging() {
+            if (_savesAcrossSessions) WriteToDisk();
+        }
+
+        /// <summary>
+        /// Drops flag state and reloads from the new profile. Session-only collections clear
+        /// too, so flags never leak from one save game into another.
+        /// </summary>
+        void IProfileScopedStore.OnProfileChanged(string profileRoot) {
             _state = new Dictionary<string, bool>();
             if (_savesAcrossSessions) Load();
         }
@@ -106,23 +129,38 @@ namespace ProxyCore {
         //  Persistence                                                         //
         // ------------------------------------------------------------------ //
 
-        private string SavePath =>
-            Path.Combine(Application.persistentDataPath, $"flags_{name}.json");
+        // Resolved through SaveProfile so flag state follows the active save game.
+        private string SavePath => SaveProfile.PathFor($"flags_{name}.json");
 
+        /// <summary>
+        /// Persists after a mutation. Honours <see cref="ProxyCore.SaveProfile.AutoSave"/>, so a
+        /// game that batches writes gets nothing on disk until it calls SaveProfile.Save().
+        /// </summary>
         private void Save() {
+            if (SaveProfile.AutoSave) WriteToDisk();
+        }
+
+        /// <summary>Writes flag state to the active profile unconditionally.</summary>
+        private void WriteToDisk() {
             var data = new FlagSaveData();
             foreach (var kv in State)
                 if (kv.Value) data.setFlagNames.Add(kv.Key);
-            File.WriteAllText(SavePath, JsonUtility.ToJson(data, prettyPrint: true));
+
+            // Don't litter a save with files for collections that never had a flag set.
+            // An existing file is still rewritten, so clearing every flag does persist.
+            if (data.setFlagNames.Count == 0 && !File.Exists(SavePath)) return;
+
+            SaveProfile.WriteAtomic(SavePath, JsonUtility.ToJson(data, prettyPrint: true));
         }
 
         private void Load() {
-            if (!File.Exists(SavePath)) return;
-            var data = JsonUtility.FromJson<FlagSaveData>(File.ReadAllText(SavePath));
+            // Returns null when missing, and quarantines the file when it cannot be parsed
+            // rather than losing it silently — see SaveProfile.ReadJson.
+            var data = SaveProfile.ReadJson<FlagSaveData>(SavePath);
             if (data?.setFlagNames == null) return;
             foreach (var flagName in data.setFlagNames)
                 if (_definedFlags.Contains(flagName))
-                    _state[flagName] = true;
+                    State[flagName] = true;
         }
     }
 }

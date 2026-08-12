@@ -124,26 +124,97 @@ symmetry only — overrides always persist, so it no longer selects a storage ti
 - `IsUnlockedByDefault = true` → item is treated as unlocked without any explicit `Unlock()` call. An explicit `Lock()` overrides this until the next `Unlock()`.
 - Lock overrides are always persisted, regardless of `SavesAcrossSessions`.
 
-### Save profiles (one save file per save game)
+### Save profiles (one save game per profile)
 
-By default all unlock state lives in a single `unlocks.json`. Call `SetSaveProfile` to give
-each save game its own file:
+#### Ownership boundary
+
+**The host game owns the save-game universe.** It decides what a save is, what identifies one,
+when to save and load, what a save-select screen shows, and which save is active at boot.
+
+**ProxyCore owns only its own state** — saved unlock keys, lock overrides, and flag collections
+— and keeps it partitioned under whichever profile the game declares active.
+
+A profile id is an **opaque key**. ProxyCore assigns it no meaning, stores no metadata about it
+(no names, timestamps, or counters), never auto-detects the current save, and never remembers
+which profile was active across launches. The game re-selects on every boot.
+
+#### Using it
 
 ```csharp
-UnlockManager.SetSaveProfile("level1_slot2"); // → unlocks_level1_slot2.json
-UnlockManager.SetSaveProfile("");             // → back to the shared unlocks.json
+string id = SaveProfile.Id(playerSlot, difficulty);  // injective, filename-safe
+SaveProfile.SetActive(id);                           // flush → switch → reload → evaluate
+SaveProfile.SetActive("");                           // back to the default (unprofiled) save
 ```
 
-Switching discards all in-memory unlock state, loads the new profile from disk, and runs an
-auto-unlock pass. Characters that are illegal in a filename are replaced with `_`. Existing
-projects need no migration: the default empty profile keeps writing `unlocks.json`.
+`SaveProfile.Id(params string[])` composes an id from any number of opaque segments and is
+**injective**: `Id("a_b","c")` and `Id("a","b_c")` never collide. Every character outside
+`[a-z0-9-]` is percent-encoded from its UTF-8 bytes, which keeps ids filename-safe on every
+platform, immune to case-insensitive filesystems collapsing two ids, and free of `/` or `..`
+traversal. ProxyCore does not care how many segments there are or what they mean.
 
-`SaveProfile` is a static, so it resets on domain reload and when entering Play Mode — set
-it as part of loading a save. The Unlock Dependency Graph window applies its selected
-graph's save slot automatically.
+`UnlockManager.SetSaveProfile(id)` still works and forwards to `SaveProfile.SetActive`.
 
-**Not profile-scoped:** `GameFlagCollection` still writes `flags_{name}.json`, so flags are
-shared across all save profiles.
+#### Layout
+
+With a profile active, ProxyCore keeps its files in one directory per profile:
+
+```
+{persistentDataPath}/proxycore/{profileId}/
+    unlocks.json        ← savedUnlockedKeys + lockedOverrideKeys
+    flags_{name}.json   ← one per GameFlagCollection
+```
+
+With **no** profile active — the default — the legacy flat paths
+`{persistentDataPath}/unlocks.json` and `flags_{name}.json` are used unchanged, so a project
+that never touches this API behaves exactly as before.
+
+#### Lifecycle API
+
+```csharp
+SaveProfile.Active                        // "" when unprofiled
+SaveProfile.Save();                       // flush every ProxyCore store now
+SaveProfile.Reload();                     // discard memory, re-read from disk
+SaveProfile.ListProfiles();               // ids ProxyCore holds data for (no metadata)
+SaveProfile.ProfileExists(id);
+SaveProfile.DeleteProfile(id);            // removes that profile's ProxyCore files, nothing else
+                                          //   deleting the ACTIVE profile also deselects it
+SaveProfile.CopyProfile(from, to);        // independent copy; flushes `from` if it is active
+SaveProfile.ProfileChanged += id => { };  // fires after ProxyCore stores have reloaded
+SaveProfile.AutoSave = false;             // batch writes; Save() and switches still flush
+```
+
+`AutoSave` defaults to `true`, so unlock and flag mutations write immediately as before. Set it
+`false` to control when a save game hits disk; explicit `Save()` and profile switches always
+flush regardless.
+
+`ProfileChanged` fires **after** every ProxyCore store has reloaded, so a handler can swap
+game-owned state without ordering calls by hand.
+
+#### Adding your own profile-scoped store
+
+Implement `IProfileScopedStore` and register it. This is for ProxyCore-shaped state that must
+follow the active save — it is not a general save system for game data.
+
+```csharp
+void OnProfileChanging();                  // flush to the outgoing profile
+void OnProfileChanged(string profileRoot); // clear state and reload from the new root
+```
+
+`UnlockManager` and `GameFlagCollection` both implement it.
+
+#### Durability
+
+Writes go through a temp file and an atomic replace, so an interrupted write leaves the previous
+save readable. A file that exists but cannot be parsed is **not** silently discarded: it is
+moved to `{path}.corrupt`, an error naming both paths is logged, and that store starts from
+empty state. The next save writes a fresh file and the quarantined one stays for recovery.
+
+Projects that never call a profile API keep reading and writing the legacy flat paths, so
+nothing needs migrating.
+
+`SaveProfile.Active` is a static and resets on domain reload and on entering Play Mode — set it
+as part of loading a save. The Unlock Dependency Graph window applies its selected graph's save
+slot automatically.
 
 ### IsUnlocked vs IsUnlockedByKey
 
@@ -185,6 +256,25 @@ Chains: if B's prerequisite is A, and C's prerequisite is B, create one trigger 
 | `All` | Every condition in the list must return `true` (AND) |
 | `Any` | At least one condition must return `true` (OR) |
 
+### Scoping which definitions the unlock system sees
+
+`EvaluateAutoTriggers()` and `PurgeStaleSavedKeys()` both read
+`BaseRegistry<T>.GetCatalogDefinitions()`, which is `virtual`. Override it to show the unlock
+system a subset:
+
+```csharp
+public class ChapterRegistry : BaseRegistry<ChapterDefinition> {
+    public IReadOnlyList<ChapterDefinition> ActiveChapter { get; set; }
+
+    public override IReadOnlyList<BaseDefinition> GetCatalogDefinitions() =>
+        ActiveChapter.ConvertAll(d => (BaseDefinition)d).AsReadOnly();
+}
+```
+
+Definitions outside the returned list are never auto-unlocked, so a save file does not
+accumulate keys for content that save will never surface. Filtering here rather than through the
+manager's registry list keeps the change in your code, where the scoping rule lives.
+
 ---
 
 ## Flag Conditions
@@ -209,6 +299,18 @@ bool done = myFlagCollection.GetFlag("boss_defeated");
 
 `_autoEvaluateOnSet` (default `true`) makes flag changes push-driven — no manual polling needed.
 Disable it on collections that batch many flag changes at once and call `EvaluateAutoTriggers()` manually.
+
+### Flags are profile-scoped
+
+Flag collections are ProxyCore-owned state, so they follow the active save profile like unlocks
+do. With a profile active a collection writes to `proxycore/{profileId}/flags_{name}.json`;
+unprofiled it keeps the legacy `flags_{name}.json`. The file name still comes from the asset
+name, so renaming the asset still changes its file.
+
+Switching profiles mid-session reloads every collection — a `_savesAcrossSessions` collection
+re-reads the new save's file, and a session-only collection is cleared. Flag state therefore
+never leaks from one save game into another, which matters because `FlagCondition` feeds unlock
+evaluation.
 
 ---
 

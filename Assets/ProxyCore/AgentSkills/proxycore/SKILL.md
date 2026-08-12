@@ -8,8 +8,10 @@ description: >-
   or ProxyCore.Generated — adding or wiring an event, writing a payload, adding a
   listener (TriggerEvent./ListenEvent.), creating a BaseDefinition / BaseRegistry
   / catalog, or gating content with IUnlockable / UnlockManager / GameFlagCollection /
-  unlock conditions. Trigger even when the user just says "add an event", "make a
-  new definition", "unlock this when…", or names a *Payload / *Definition / *Registry
+  unlock conditions. Also covers save games: multiple save slots/profiles, SaveProfile,
+  where unlock and flag state is written on disk, and per-save persistence. Trigger even
+  when the user just says "add an event", "make a new definition", "unlock this when…",
+  "add save slots", "separate saves", or names a *Payload / *Definition / *Registry
   type, because the correct idioms here differ from generic Unity code and from
   ProxyCore's own README.
 ---
@@ -24,6 +26,7 @@ task touches exactly one of them — read the matching reference file, not all t
 | triggering/listening to events, writing a `*Payload`, adding a category, regenerating accessors | [events](references/events.md) |
 | creating a `*Definition` (data asset) or a `*Registry`/catalog that looks them up — a general pattern for any family of entities (resources, NPCs, world events…) | [definitions and registries](references/definitions-and-registries.md) |
 | locking/unlocking content, prerequisites/auto-unlock chains, flags, unlock conditions | [unlockables](references/unlockables.md) |
+| save games / save slots / profiles — making ProxyCore state per-save, `SaveProfile`, where unlock and flag files land on disk | [unlockables](references/unlockables.md#save-profiles) |
 
 For unlockables, split the work: **you implement** the plumbing (IUnlockable, conditions,
 runtime unlock calls); the **designer connects the actual unlock chains** in the visual
@@ -92,6 +95,29 @@ if (p != null) health -= p.value;      // note: lowercase `.value`
 `ListenEvent.…Do(cb)` returns an `IDisposable`. Keep the handle and dispose it in
 `OnDisable`, or the listener leaks across scene reloads. See the
 [events reference](references/events.md).
+
+### Multiple save games: set a profile, don't invent a save system
+
+ProxyCore writes its own state (unlock keys, lock overrides, flag collections) to
+`Application.persistentDataPath`. By default everything shares one set of files, so **two
+save games would overwrite each other**. If the project has more than one save, the game
+must tell ProxyCore which one is active:
+
+```csharp
+string id = SaveProfile.Id(slotIndex.ToString(), difficulty);  // injective, filename-safe
+SaveProfile.SetActive(id);   // flush → switch → reload all ProxyCore state → re-evaluate
+```
+
+**The ownership line matters — do not cross it.** The host game owns what a save *is*:
+its identity, display name, timestamps, thumbnails, which one loads at boot, and its own
+non-ProxyCore data. ProxyCore only partitions *its own* state under an opaque profile id.
+Never build save-slot metadata, "last used save" memory, or current-save auto-detection
+into ProxyCore or ask it to provide them — it deliberately has none of that.
+
+Always compose ids with `SaveProfile.Id(...)`, never by string concatenation: hand-joined
+segments can collide and silently merge two saves into one file. Details, the lifecycle
+API (list/delete/copy), autosave control, and `IProfileScopedStore` are in the
+[unlockables reference](references/unlockables.md#save-profiles).
 
 ### Definition IDs must be persisted and non-zero
 

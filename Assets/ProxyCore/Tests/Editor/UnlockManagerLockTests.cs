@@ -29,14 +29,14 @@ namespace ProxyCore.Tests {
 
         [TearDown]
         public void TearDown() {
-            // Delete every profile file the fixture may have created, then hand the
+            // Drop every profile directory the fixture may have created, then hand the
             // editor back its real save state.
-            foreach (var profile in new[] { TEST_PROFILE + "_other", TEST_PROFILE + "_slot2", TEST_PROFILE }) {
-                UnlockManager.SetSaveProfile(profile);
-                UnlockManager.ResetSavedUnlocks();
+            UnlockManager.SetSaveProfile("");
+            foreach (var profile in new[] { TEST_PROFILE, TEST_PROFILE + "_other", TEST_PROFILE + "_slot2" }) {
+                if (SaveProfile.ProfileExists(profile))
+                    SaveProfile.DeleteProfile(profile);
             }
             UnlockManager.ResetSessionUnlocks();
-            UnlockManager.SetSaveProfile("");
         }
 
         // ── The reported bug ─────────────────────────────────────────────

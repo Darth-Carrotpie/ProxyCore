@@ -13,8 +13,8 @@ namespace ProxyCore.Editor {
             }
 
             UnlockManager.ResetSavedUnlocks();
-            string profile = string.IsNullOrEmpty(UnlockManager.SaveProfile)
-                ? "default" : UnlockManager.SaveProfile;
+            string profile = string.IsNullOrEmpty(SaveProfile.Active)
+                ? "default" : SaveProfile.Active;
             Debug.Log($"ProxyCore: Saved unlock data cleared (profile: {profile}).");
         }
 

@@ -272,7 +272,7 @@ Various Unity object, math, and utility extension methods included.
 
 ## Unlockables System
 
-Gate any gameplay content — abilities, levels, characters, cosmetics — behind a lock state managed by a single `UnlockManager` ScriptableObject. Implement `IUnlockable` on any class to make it participate. Lock state can optionally persist to disk across sessions or remain session-only. Items can also declare prerequisites via `IHasPrerequisites` so that `UnlockAutoTrigger` assets automatically unlock them once conditions are met, enabling no-code progression chains.
+Gate any gameplay content — abilities, levels, characters, cosmetics — behind a lock state managed by a single `UnlockManager` ScriptableObject. Implement `IUnlockable` on any class to make it participate. Lock state can optionally persist to disk across sessions or remain session-only. Items can also declare prerequisites via `IHasPrerequisites` with `AutoUnlock`, and the registries listed on the `UnlockManager` are scanned after every unlock, so chains resolve automatically with no code.
 
 **Minimal implementation** — add `IUnlockable` to any class or `BaseDefinition` subclass:
 
@@ -290,23 +290,63 @@ public class SwordDefinition : BaseDefinition, IUnlockable
 
 ```csharp
 // Unlock an item (persists if SavesAcrossSessions = true)
-UnlockManager.Instance.Unlock(swordDefinition);
+UnlockManager.Unlock(swordDefinition);
 
 // Query lock state anywhere
-if (UnlockManager.Instance.IsUnlocked(swordDefinition))
+if (UnlockManager.IsUnlocked(swordDefinition))
     ShowItem(swordDefinition);
 
 // Lock it again (e.g. seasonal content expiry)
-UnlockManager.Instance.Lock(swordDefinition);
+UnlockManager.Lock(swordDefinition);
 ```
 
+`Lock()` and `Unlock()` are symmetric — an explicit `Lock()` outranks `IsUnlockedByDefault`, and a later `Unlock()` clears it again.
+
 For prerequisite chains, `GameFlagCollection` flags, and standalone (non-registry) usage see the [full documentation](Assets/ProxyCore/Documentation/UnlockablesSystem.md).
+
+---
+
+## Save Profiles (multiple save games)
+
+By default ProxyCore keeps its state — unlock keys, lock overrides, and flag collections — in one set of files under `Application.persistentDataPath`. If your game has more than one save game, tell ProxyCore which one is active and it partitions all of that state per save:
+
+```csharp
+string id = SaveProfile.Id(slotIndex.ToString(), difficulty);  // collision-safe, filename-safe
+SaveProfile.SetActive(id);   // flush → switch → reload → re-evaluate unlocks
+```
+
+Each profile gets its own directory, so two saves never see each other's progress:
+
+```
+{persistentDataPath}/proxycore/{profileId}/
+    unlocks.json        ← unlock keys + lock overrides
+    flags_{name}.json   ← one per GameFlagCollection
+```
+
+Managing that data without knowing the file layout:
+
+```csharp
+SaveProfile.ListProfiles();          // profile ids ProxyCore holds data for
+SaveProfile.DeleteProfile(id);       // "delete save"
+SaveProfile.CopyProfile(from, to);   // "duplicate save"
+SaveProfile.Save();                  // write now — pair with SaveProfile.AutoSave = false
+SaveProfile.ProfileChanged += id => { /* swap your own state in tandem */ };
+```
+
+**Who owns what.** Your game owns the save-game universe: what a save is, its name and timestamp, which one loads at boot, and all your own data. ProxyCore owns only its own state and stores no metadata about a profile — the id is an opaque key you choose. Keep your save index wherever you like and map it onto profile ids.
+
+Doing nothing keeps the original single-save behaviour, so existing projects need no changes. Writes are atomic (temp file + replace) and an unreadable file is moved to `{path}.corrupt` with a logged error rather than being silently discarded.
+
+Full details, including `IProfileScopedStore` for your own ProxyCore-shaped stores, are in the [Unlockables documentation](Assets/ProxyCore/Documentation/UnlockablesSystem.md#save-profiles-one-save-game-per-profile).
 
 ---
 
 ## Documentation
 
 - [Unlockables System](Assets/ProxyCore/Documentation/UnlockablesSystem.md) — Covers the `UnlockManager`, `IUnlockable`, prerequisite chains, `UnlockCondition`, `GameFlagCollection`, and both standalone and definition-registry usage modes.
+- [Save Profiles](Assets/ProxyCore/Documentation/UnlockablesSystem.md#save-profiles-one-save-game-per-profile) — Multiple save games: `SaveProfile`, per-save unlock and flag storage, the list/delete/copy lifecycle API, autosave control, and `IProfileScopedStore`.
+- [Unlock Dependency Graph](Assets/ProxyCore/Documentation/UnlockablesSystem.md#unlock-dependency-graph--multiple-graphs--save-slots) — The visual progression editor: multiple graphs per project, per-graph save slots, and the per-node lock toggle.
+- [Unlock Edge Strategy Guidelines](Assets/ProxyCore/Documentation/UnlockEdgeStrategyGuidelines.md) — Adding a custom `UnlockCondition` type that the graph can draw as a direct edge via `IDefinitionEdgeStrategy`.
 - [Button Strip Usage](Assets/ProxyCore/Documentation/ButtonStripUsage.md) — Explains the Scene View toolbar overlay and how downstream projects can register their own buttons via `ProxyCoreToolbarRegistry`.
 
 ---

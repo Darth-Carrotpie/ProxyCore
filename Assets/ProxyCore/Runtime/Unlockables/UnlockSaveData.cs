@@ -5,8 +5,8 @@ namespace ProxyCore
 {
     /// <summary>
     /// Serializable container for unlock state that persists across game sessions.
-    /// Written to and read from Application.persistentDataPath/unlocks.json by UnlockManager
-    /// (or unlocks_{profile}.json when a save profile is active).
+    /// Written to and read from Application.persistentDataPath/unlocks.json by UnlockManager,
+    /// or proxycore/{profileId}/unlocks.json when a save profile is active (see SaveProfile).
     /// </summary>
     [Serializable]
     public class UnlockSaveData

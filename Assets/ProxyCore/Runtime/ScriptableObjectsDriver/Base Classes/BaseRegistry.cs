@@ -40,7 +40,13 @@ namespace ProxyCore {
         }
 
         /// <inheritdoc/>
-        public IReadOnlyList<BaseDefinition> GetCatalogDefinitions() {
+        /// <remarks>
+        /// Override to narrow what the unlock system sees. UnlockManager's auto-unlock pass and
+        /// stale-key purge both read this, so returning a subset keeps definitions outside that
+        /// subset from auto-unlocking and from filling the save file with keys the current save
+        /// will never surface.
+        /// </remarks>
+        public virtual IReadOnlyList<BaseDefinition> GetCatalogDefinitions() {
             if (_lookup == null)
                 InitializeLookup();
             return definitions.ConvertAll(d => (BaseDefinition)d).AsReadOnly();

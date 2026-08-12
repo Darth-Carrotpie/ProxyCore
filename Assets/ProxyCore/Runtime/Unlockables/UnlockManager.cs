@@ -16,8 +16,8 @@ namespace ProxyCore {
     ///                      Written to disk with _savedUnlocked. Unlock() clears the override,
     ///                      so Lock() and Unlock() are symmetric.
     ///
-    /// Call SetSaveProfile() to point disk state at a per-save-game file
-    /// ("unlocks_{profile}.json" instead of the shared "unlocks.json").
+    /// Call SetSaveProfile() (or SaveProfile.SetActive) to point disk state at a per-save-game
+    /// directory — "proxycore/{profileId}/unlocks.json" instead of the shared "unlocks.json".
     ///
     /// Assign EventMessage assets to onUnlocked / onLocked to broadcast state changes
     /// through the ProxyCore EventCoordinator. Both fields are optional and null-guarded.
@@ -26,7 +26,7 @@ namespace ProxyCore {
     /// anywhere discoverable by Resources.Load or AssetDatabase (see SingletonSO).
     /// </summary>
     [CreateAssetMenu(fileName = "UnlockManager", menuName = "Managers/Unlock Manager")]
-    public class UnlockManager : SingletonSO<UnlockManager> {
+    public class UnlockManager : SingletonSO<UnlockManager>, IProfileScopedStore {
         #region Fields
 
         [Header("Events")]
@@ -64,18 +64,8 @@ namespace ProxyCore {
             public bool Enabled = true;
         }
 
-        private static string _saveProfile = "";
-
-        /// <summary>
-        /// Id of the active save profile. Empty (the default) reads and writes
-        /// "unlocks.json"; any other value reads and writes "unlocks_{profile}.json".
-        /// Set it with <see cref="SetSaveProfile"/>.
-        /// </summary>
-        public static string SaveProfile => _saveProfile;
-
-        private static string SavePath => Path.Combine(
-            Application.persistentDataPath,
-            string.IsNullOrEmpty(_saveProfile) ? "unlocks.json" : $"unlocks_{_saveProfile}.json");
+        // Resolved through SaveProfile so unlock state follows the active save game.
+        private static string SavePath => SaveProfile.PathFor(SaveProfile.UNLOCKS_FILE);
 
         #endregion
 
@@ -88,6 +78,7 @@ namespace ProxyCore {
             _didWarnEmptyRegistries = false;
             _didWarnUnusableRegistries = false;
             _didWarnStaleRegistries = false;
+            SaveProfile.Register(this);
             Load();
 #if UNITY_EDITOR
             ValidateRegistryConfigurationInEditor();
@@ -96,11 +87,31 @@ namespace ProxyCore {
             EvaluateAutoTriggers();
         }
 
+        protected override void OnDisable() {
+            SaveProfile.Unregister(this);
+            base.OnDisable();
+        }
+
         protected override void OnSceneReload() {
             base.OnSceneReload();
             // Only session state resets here. _lockedOverrides is saved state — it is
             // reloaded from disk with _savedUnlocked and cleared by Unlock()/ResetSavedUnlocks().
             _sessionUnlocked.Clear();
+        }
+
+        #endregion
+
+        #region IProfileScopedStore
+
+        /// <summary>Flushes unlock state to the current profile. Ignores the autosave setting.</summary>
+        void IProfileScopedStore.OnProfileChanging() => WriteToDisk();
+
+        /// <summary>Drops all unlock state — saved, session, and overrides — and reloads.</summary>
+        void IProfileScopedStore.OnProfileChanged(string profileRoot) {
+            _savedUnlocked.Clear();
+            _sessionUnlocked.Clear();
+            _lockedOverrides.Clear();
+            Load();
         }
 
         #endregion
@@ -360,57 +371,48 @@ namespace ProxyCore {
         }
 
         /// <summary>
-        /// Switches the active save profile, so unlock state reads and writes
-        /// "unlocks_{profileId}.json" instead of the shared "unlocks.json".
-        /// Use one profile per save game. All in-memory state is discarded and the new
-        /// profile is loaded from disk.
+        /// Switches the active save profile, so every ProxyCore store — unlock state and flag
+        /// collections alike — reads and writes that save's own files under
+        /// "proxycore/{profileId}/" instead of the shared default.
+        /// Use one profile per save game. All in-memory state is discarded and the new profile
+        /// is loaded from disk.
+        ///
+        /// Convenience wrapper for <see cref="ProxyCore.SaveProfile.SetActive"/>. Compose ids
+        /// with <see cref="ProxyCore.SaveProfile.Id"/> when a save is keyed by several values —
+        /// it guarantees two different saves cannot collide on one directory.
         /// </summary>
         /// <param name="profileId">
-        /// Profile id. Characters that are illegal in a filename are replaced with '_'.
-        /// Pass null or empty to return to the default "unlocks.json".
+        /// Profile id. Pass null or empty to return to the default (unprofiled) save.
         /// </param>
-        public static void SetSaveProfile(string profileId) {
-            string sanitized = SanitizeProfileId(profileId);
-            if (sanitized == _saveProfile) return;
-            _saveProfile = sanitized;
-
-            var inst = Instance;
-            if (inst == null) return;
-            inst._savedUnlocked.Clear();
-            inst._sessionUnlocked.Clear();
-            inst._lockedOverrides.Clear();
-            inst.Load();
-            EvaluateAutoTriggers();
-        }
-
-        private static string SanitizeProfileId(string profileId) {
-            if (string.IsNullOrWhiteSpace(profileId)) return "";
-            var chars = profileId.Trim().ToCharArray();
-            foreach (char invalid in Path.GetInvalidFileNameChars()) {
-                for (int i = 0; i < chars.Length; i++)
-                    if (chars[i] == invalid) chars[i] = '_';
-            }
-            return new string(chars);
-        }
+        public static void SetSaveProfile(string profileId) => SaveProfile.SetActive(profileId);
 
         #endregion
 
         #region Persistence
 
+        /// <summary>
+        /// Persists after a mutation. Honours <see cref="ProxyCore.SaveProfile.AutoSave"/>, so a
+        /// game that batches writes gets nothing on disk until it calls SaveProfile.Save().
+        /// </summary>
         private void Save() {
+            if (SaveProfile.AutoSave) WriteToDisk();
+        }
+
+        /// <summary>Writes unlock state to the active profile unconditionally.</summary>
+        private void WriteToDisk() {
             var data = new UnlockSaveData();
             data.savedUnlockedKeys.AddRange(_savedUnlocked);
             data.lockedOverrideKeys.AddRange(_lockedOverrides);
-            File.WriteAllText(SavePath, JsonUtility.ToJson(data, prettyPrint: true));
+            SaveProfile.WriteAtomic(SavePath, JsonUtility.ToJson(data, prettyPrint: true));
         }
 
         private void Load() {
             _savedUnlocked.Clear();
             _lockedOverrides.Clear();
-            if (!File.Exists(SavePath))
-                return;
 
-            var data = JsonUtility.FromJson<UnlockSaveData>(File.ReadAllText(SavePath));
+            // Returns null when missing, and quarantines the file when it cannot be parsed
+            // rather than losing it silently — see SaveProfile.ReadJson.
+            var data = SaveProfile.ReadJson<UnlockSaveData>(SavePath);
             if (data == null)
                 return;
 

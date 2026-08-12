@@ -28,6 +28,7 @@
   <Project Path="Unity.InternalAPIEngineBridge.001.csproj" />
   <Project Path="Unity.Burst.Editor.csproj" />
   <Project Path="Unity.2D.Common.Editor.csproj" />
+  <Project Path="ProxyCore.Editor.Tests.csproj" />
   <Project Path="Unity.InputSystem.DocCodeSamples.csproj" />
   <Project Path="Unity.2D.Common.Runtime.csproj" />
   <Project Path="Unity.InputSystem.ForUI.csproj" />
@@ -38,5 +39,4 @@
   <Project Path="ProxyCore.Samples.Unlockables.Editor.csproj" />
   <Project Path="UnitySkills.Tests.Runtime.csproj" />
   <Project Path="Unity.Collections.Editor.csproj" />
-  <Project Path="ProxyCore.Tests.Editor.csproj" />
 </Solution>
