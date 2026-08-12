@@ -6,26 +6,33 @@ using UnityEngine;
 namespace ProxyCore.Editor.Graph {
     /// <summary>
     /// Modal dialog that displays used vs unused <see cref="UnlockCondition"/>
-    /// assets in two columns. Unused conditions can be selected and deleted
+    /// assets in columns. Unused conditions can be selected and deleted
     /// individually or all at once, with a confirmation prompt before deletion.
     ///
-    /// A third "Mismatched" column lists referenced conditions whose type does not
+    /// A "Mismatched" column lists referenced conditions whose type does not
     /// match the strategy registered for their source definition. These can be
     /// deleted here; the user then redraws the edge in the graph to recreate the
     /// correct condition type.
+    ///
+    /// An "Ineffective" column lists referenced conditions that are trivially
+    /// satisfied — a <see cref="DefinitionUnlockedCondition"/> whose target is
+    /// unlocked by default gates nothing wherever it is used as a prerequisite.
     /// </summary>
     internal sealed class ConditionCleanupDialog : EditorWindow {
         // ── Data ─────────────────────────────────────────────────────────
         private List<ConditionEntry> _usedConditions = new();
         private List<ConditionEntry> _unusedConditions = new();
         private List<ConditionEntry> _wrongTypeConditions = new();
+        private List<ConditionEntry> _ineffectiveConditions = new();
         private bool _selectAllUnused;
         private bool _selectAllWrongType;
+        private bool _selectAllIneffective;
 
         // ── Scroll positions ─────────────────────────────────────────────
         private Vector2 _usedScroll;
         private Vector2 _unusedScroll;
         private Vector2 _wrongTypeScroll;
+        private Vector2 _ineffectiveScroll;
 
         // ── Result ───────────────────────────────────────────────────────
         public bool DeletedAny { get; private set; }
@@ -35,7 +42,7 @@ namespace ProxyCore.Editor.Graph {
             public string AssetPath;
             public string TypeName;
             public bool Selected;
-            public string MismatchReason;
+            public string Reason;
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -45,7 +52,7 @@ namespace ProxyCore.Editor.Graph {
         public static ConditionCleanupDialog Show() {
             var dlg = CreateInstance<ConditionCleanupDialog>();
             dlg.titleContent = new GUIContent("Condition Cleanup");
-            dlg.minSize = new Vector2(940, 400);
+            dlg.minSize = new Vector2(1240, 400);
             dlg.Init();
             dlg.ShowModal();
             return dlg;
@@ -63,8 +70,10 @@ namespace ProxyCore.Editor.Graph {
             _usedConditions.Clear();
             _unusedConditions.Clear();
             _wrongTypeConditions.Clear();
+            _ineffectiveConditions.Clear();
             _selectAllUnused = false;
             _selectAllWrongType = false;
+            _selectAllIneffective = false;
 
             // 1. Collect all UnlockCondition assets
             var allConditions = new Dictionary<int, (UnlockCondition cond, string path)>();
@@ -107,14 +116,24 @@ namespace ProxyCore.Editor.Graph {
                     _unusedConditions.Add(entry);
             }
 
-            // 4. Among used conditions, detect strategy-type mismatches
+            // 4. Among used conditions, detect strategy-type mismatches and trivially-true ones
             foreach (var entry in usedEntries) {
                 if (DefinitionEdgeStrategyRegistry.TryGetDirectEdgeSource(entry.Condition, out var sourceDef)) {
                     var expectedStrategy = DefinitionEdgeStrategyRegistry.GetStrategy(sourceDef.GetType());
                     if (!expectedStrategy.OwnsCondition(entry.Condition)) {
-                        entry.MismatchReason =
+                        entry.Reason =
                             $"Expected type from '{expectedStrategy.GetType().Name}' for source '{sourceDef.name}'";
                         _wrongTypeConditions.Add(entry);
+                        continue;
+                    }
+
+                    // Only DefinitionUnlockedCondition means "source is unlocked" — other
+                    // strategies' conditions have their own semantics, so a source that starts
+                    // unlocked says nothing about whether those are trivially satisfied.
+                    if (entry.Condition is DefinitionUnlockedCondition
+                        && sourceDef is IUnlockable { IsUnlockedByDefault: true }) {
+                        entry.Reason = $"Target '{sourceDef.name}' is unlocked by default";
+                        _ineffectiveConditions.Add(entry);
                         continue;
                     }
                 }
@@ -125,6 +144,7 @@ namespace ProxyCore.Editor.Graph {
             _usedConditions = _usedConditions.OrderBy(e => e.Condition.name).ToList();
             _unusedConditions = _unusedConditions.OrderBy(e => e.Condition.name).ToList();
             _wrongTypeConditions = _wrongTypeConditions.OrderBy(e => e.Condition.name).ToList();
+            _ineffectiveConditions = _ineffectiveConditions.OrderBy(e => e.Condition.name).ToList();
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -137,20 +157,26 @@ namespace ProxyCore.Editor.Graph {
             // Header counts
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField(
-                $"Used: {_usedConditions.Count}   |   Mismatched: {_wrongTypeConditions.Count}   |   Unused: {_unusedConditions.Count}",
+                $"Used: {_usedConditions.Count}   |   Mismatched: {_wrongTypeConditions.Count}   " +
+                $"|   Ineffective: {_ineffectiveConditions.Count}   |   Unused: {_unusedConditions.Count}",
                 EditorStyles.boldLabel);
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.Space(2);
 
-            // ── Three columns ─────────────────────────────────────────
+            // ── Four columns ──────────────────────────────────────────
             EditorGUILayout.BeginHorizontal();
 
             DrawUsedColumn();
             GUILayout.Space(4);
-            DrawWrongTypeColumn();
+            DrawSelectableColumn("Mismatched Type", _wrongTypeConditions,
+                ref _selectAllWrongType, ref _wrongTypeScroll, "No type mismatches found.");
             GUILayout.Space(4);
-            DrawUnusedColumn();
+            DrawSelectableColumn("Ineffective", _ineffectiveConditions,
+                ref _selectAllIneffective, ref _ineffectiveScroll, "No ineffective conditions found.");
+            GUILayout.Space(4);
+            DrawSelectableColumn("Unused Conditions", _unusedConditions,
+                ref _selectAllUnused, ref _unusedScroll, "No unused conditions found.");
 
             EditorGUILayout.EndHorizontal();
 
@@ -189,72 +215,35 @@ namespace ProxyCore.Editor.Graph {
             EditorGUILayout.EndVertical();
         }
 
-        // ── Middle column: Wrong-Type Conditions ──────────────────────
+        // ── Remaining columns: selectable, one per category ───────────
 
-        private void DrawWrongTypeColumn() {
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.MinWidth(300));
+        private static void DrawSelectableColumn(string title, List<ConditionEntry> entries,
+            ref bool selectAll, ref Vector2 scroll, string emptyText) {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.MinWidth(280));
 
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Mismatched Type", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(title, EditorStyles.boldLabel);
             GUILayout.FlexibleSpace();
-            if (_wrongTypeConditions.Count > 0) {
-                bool newSelectAll = GUILayout.Toggle(_selectAllWrongType, "Select All",
-                    GUILayout.Width(80));
-                if (newSelectAll != _selectAllWrongType) {
-                    _selectAllWrongType = newSelectAll;
-                    foreach (var entry in _wrongTypeConditions)
-                        entry.Selected = _selectAllWrongType;
+            if (entries.Count > 0) {
+                bool newSelectAll = GUILayout.Toggle(selectAll, "Select All", GUILayout.Width(80));
+                if (newSelectAll != selectAll) {
+                    selectAll = newSelectAll;
+                    foreach (var entry in entries)
+                        entry.Selected = selectAll;
                 }
             }
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.Space(2);
 
-            _wrongTypeScroll = EditorGUILayout.BeginScrollView(_wrongTypeScroll);
+            scroll = EditorGUILayout.BeginScrollView(scroll);
 
-            if (_wrongTypeConditions.Count == 0) {
-                EditorGUILayout.LabelField("No type mismatches found.",
-                    EditorStyles.centeredGreyMiniLabel);
+            if (entries.Count == 0) {
+                EditorGUILayout.LabelField(emptyText, EditorStyles.centeredGreyMiniLabel);
             }
             else {
-                foreach (var entry in _wrongTypeConditions)
-                    DrawSelectableRow(entry, showReason: true);
-            }
-
-            EditorGUILayout.EndScrollView();
-            EditorGUILayout.EndVertical();
-        }
-
-        // ── Right column: Unused Conditions ──────────────────────────
-
-        private void DrawUnusedColumn() {
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.MinWidth(260));
-
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Unused Conditions", EditorStyles.boldLabel);
-            GUILayout.FlexibleSpace();
-            if (_unusedConditions.Count > 0) {
-                bool newSelectAll = GUILayout.Toggle(_selectAllUnused, "Select All",
-                    GUILayout.Width(80));
-                if (newSelectAll != _selectAllUnused) {
-                    _selectAllUnused = newSelectAll;
-                    foreach (var entry in _unusedConditions)
-                        entry.Selected = _selectAllUnused;
-                }
-            }
-            EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.Space(2);
-
-            _unusedScroll = EditorGUILayout.BeginScrollView(_unusedScroll);
-
-            if (_unusedConditions.Count == 0) {
-                EditorGUILayout.LabelField("No unused conditions found.",
-                    EditorStyles.centeredGreyMiniLabel);
-            }
-            else {
-                foreach (var entry in _unusedConditions)
-                    DrawSelectableRow(entry, showReason: false);
+                foreach (var entry in entries)
+                    DrawSelectableRow(entry);
             }
 
             EditorGUILayout.EndScrollView();
@@ -276,7 +265,7 @@ namespace ProxyCore.Editor.Graph {
             EditorGUILayout.EndHorizontal();
         }
 
-        private static void DrawSelectableRow(ConditionEntry entry, bool showReason) {
+        private static void DrawSelectableRow(ConditionEntry entry) {
             EditorGUILayout.BeginHorizontal();
 
             entry.Selected = EditorGUILayout.Toggle(entry.Selected, GUILayout.Width(18));
@@ -286,8 +275,8 @@ namespace ProxyCore.Editor.Graph {
 
             GUILayout.FlexibleSpace();
 
-            if (showReason && !string.IsNullOrEmpty(entry.MismatchReason))
-                EditorGUILayout.LabelField(entry.MismatchReason, EditorStyles.miniLabel,
+            if (!string.IsNullOrEmpty(entry.Reason))
+                EditorGUILayout.LabelField(entry.Reason, EditorStyles.miniLabel,
                     GUILayout.Width(200));
             else
                 EditorGUILayout.LabelField(entry.TypeName, EditorStyles.miniLabel,
@@ -303,6 +292,7 @@ namespace ProxyCore.Editor.Graph {
             GUILayout.FlexibleSpace();
 
             int selectedWrong = _wrongTypeConditions.Count(e => e.Selected);
+            int selectedIneffective = _ineffectiveConditions.Count(e => e.Selected);
             int selectedUnused = _unusedConditions.Count(e => e.Selected);
 
             // Delete selected wrong-type
@@ -310,6 +300,17 @@ namespace ProxyCore.Editor.Graph {
             if (GUILayout.Button($"Delete Mismatched ({selectedWrong})", GUILayout.Width(180))) {
                 var toDelete = _wrongTypeConditions.Where(e => e.Selected).ToList();
                 if (ConfirmDeletion(toDelete, "Mismatched Conditions"))
+                    DeleteConditions(toDelete);
+            }
+            EditorGUI.EndDisabledGroup();
+
+            GUILayout.Space(8);
+
+            // Delete selected ineffective
+            EditorGUI.BeginDisabledGroup(selectedIneffective == 0);
+            if (GUILayout.Button($"Delete Ineffective ({selectedIneffective})", GUILayout.Width(180))) {
+                var toDelete = _ineffectiveConditions.Where(e => e.Selected).ToList();
+                if (ConfirmDeletion(toDelete, "Ineffective Conditions"))
                     DeleteConditions(toDelete);
             }
             EditorGUI.EndDisabledGroup();

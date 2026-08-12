@@ -21,7 +21,10 @@ namespace ProxyCore.Editor {
         // Graph identity & save slots
         // ────────────────────────────────────────────────────────────────────────
 
-        [SerializeField, HideInInspector] private string _graphId;
+        [Tooltip("Profile segment identifying this graph on disk. Auto-generated; set it to an id " +
+                 "the game also uses (a level or scenario id) so this graph previews the game's " +
+                 "save profile. Clearing it mints a fresh id.")]
+        [SerializeField] private string _graphId;
 
         [Tooltip("Name shown in the graph picker. Falls back to the asset name when empty.")]
         public string displayName;
@@ -37,18 +40,21 @@ namespace ProxyCore.Editor {
 
         /// <summary>
         /// Stable id used to build this graph's runtime save-profile names.
-        /// Generated once and kept across renames and moves.
+        /// Generated once and kept across renames and moves; bind it to a game-side id
+        /// (a level or scenario id) to preview that game's save profile.
         /// </summary>
-        public string GraphId {
-            get {
-                if (string.IsNullOrEmpty(_graphId)) {
-                    _graphId = System.Guid.NewGuid().ToString("N").Substring(0, 8);
-#if UNITY_EDITOR
-                    UnityEditor.EditorUtility.SetDirty(this);
-#endif
-                }
-                return _graphId;
-            }
+        public string GraphId => _graphId;
+
+        // Minted here rather than from the GraphId getter, so reading a profile name never
+        // marks the asset dirty.
+        private void OnEnable() => EnsureGraphId();
+
+        private void OnValidate() => EnsureGraphId();
+
+        private void EnsureGraphId() {
+            if (!string.IsNullOrEmpty(_graphId)) return;
+            _graphId = System.Guid.NewGuid().ToString("N").Substring(0, 8);
+            UnityEditor.EditorUtility.SetDirty(this);
         }
 
         /// <summary>Label for the graph picker: <see cref="displayName"/> or the asset name.</summary>
@@ -64,11 +70,18 @@ namespace ProxyCore.Editor {
         /// <summary>
         /// Save-profile id for the active slot — pass to UnlockManager.SetSaveProfile so the
         /// graph reads and writes its own save file.
+        ///
+        /// Composed the same way the game composes one, so a graph whose <see cref="GraphId"/>
+        /// is bound to a game-side id previews exactly the profile the game selects with
+        /// <c>SaveProfile.Id(thatId, slot)</c> — for any slot name, encoding included.
         /// </summary>
-        public string ActiveSaveProfile => $"{GraphId}_{ActiveSlot}";
+        public string ActiveSaveProfile => SaveProfile.Id(GraphId, ActiveSlot);
 
-        /// <summary>Clears the generated id so a duplicated asset becomes its own graph.</summary>
-        public void ResetGraphId() => _graphId = null;
+        /// <summary>Mints a fresh id so a duplicated asset becomes its own graph.</summary>
+        public void ResetGraphId() {
+            _graphId = null;
+            EnsureGraphId();
+        }
 
         // ────────────────────────────────────────────────────────────────────────
         // Node positions

@@ -344,7 +344,12 @@ replace stale wrong-type conditions automatically when the pass mode changes. Se
 | `ProxyCore > Unlockable Actions > Clear Save Data` | Menu bar | Deletes the **active save profile's** file; works in Edit and Play Mode |
 | `ProxyCore > Unlockable Actions > Reset Session Unlocks` | Menu bar | Clears session-only unlocks; Play Mode only |
 | `ProxyCore > Unlockable Actions > Refresh Unlock Registries` | Menu bar | Repopulates the manager's auto-unlock registry list |
-| Condition Cleanup dialog | Unlock Graph toolbar → `Cleanup` | Lists Used, Mismatched, and Unused condition assets with bulk delete |
+| Condition Cleanup dialog | Unlock Graph toolbar → `Cleanup` | Lists Used, Mismatched, Ineffective, and Unused condition assets with bulk delete |
+
+**Ineffective conditions.** A `DefinitionUnlockedCondition` whose target has
+`IsUnlockedByDefault` is trivially true, so it gates nothing wherever it is used as a
+prerequisite. Editing such an asset logs a warning; the Cleanup dialog's **Ineffective**
+column finds the ones already in the project.
 
 ### Unlock Dependency Graph — multiple graphs & save slots
 
@@ -356,8 +361,18 @@ Open with **ProxyCore ▸ Unlock Dependency Graph**.
   The registry filter is what scopes a graph to its level: hide the registries that level
   does not use, via the `Registries ▾` dropdown.
 - **Save dropdown** (`💾`) — the graph's save slots, plus New Save / Delete Save. Selecting a
-  slot calls `UnlockManager.SetSaveProfile("{graphId}_{slot}")`, so each slot reads and
-  writes its own `unlocks_*.json`. Deleting a slot erases that file.
+  slot calls `UnlockManager.SetSaveProfile(SaveProfile.Id(graphId, slot))`, so each slot reads
+  and writes its own profile directory. Deleting a slot erases that state.
+- **Graph Id** — every graph carries an id, auto-generated on creation and visible in the
+  asset's inspector. Set it to an id the game itself uses (a level or scenario id) and the
+  graph previews exactly the profile the game selects with `SaveProfile.Id(thatId, slot)` —
+  slot names then line up with whatever the game's second segment is. Clearing the field
+  mints a fresh id.
+
+> **Play Mode belongs to the game.** The graph window never repoints `UnlockManager` while
+> playing: a game that calls `SaveProfile.SetActive(...)` in `Awake` keeps its own profile
+> whether or not the window is open. The pickers become read-only and the `💾` label shows
+> the live `SaveProfile.Active`; the graph's own slot is restored on exiting Play Mode.
 - **Per-node lock toggle** — the 🔒/🔓 button in a definition node's title bar locks or
   unlocks that definition immediately. It works in **Edit Mode as well as Play Mode**, and
   writes to the active save profile's file. Auto-unlock cascades are applied, so other node

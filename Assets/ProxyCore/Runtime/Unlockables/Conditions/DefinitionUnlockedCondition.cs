@@ -29,5 +29,17 @@ namespace ProxyCore {
 
             return UnlockManager.IsUnlocked(unlockable);
         }
+
+#if UNITY_EDITOR
+        private void OnValidate() {
+            // A target that starts unlocked makes Evaluate() trivially true, so the condition
+            // gates nothing — a silent no-op wherever it is used as a prerequisite.
+            if (_target is IUnlockable { IsUnlockedByDefault: true }) {
+                Debug.LogWarning(
+                    $"[DefinitionUnlockedCondition] '{name}' targets '{_target.name}', which is " +
+                    "unlocked by default — this condition always passes and gates nothing.", this);
+            }
+        }
+#endif
     }
 }

@@ -173,9 +173,12 @@ namespace ProxyCore.Editor.Graph {
         /// <summary>
         /// Points UnlockManager at the active graph's selected save slot, so unlock state
         /// read and written from this window lands in that save's own file.
+        ///
+        /// Does nothing in Play mode: the running game owns the active profile there, and
+        /// save correctness must not depend on whether this window happens to be open.
         /// </summary>
         private void ApplyActiveSaveProfile() {
-            if (_layoutData == null) return;
+            if (_layoutData == null || Application.isPlaying) return;
             UnlockManager.SetSaveProfile(_layoutData.ActiveSaveProfile);
         }
 
@@ -220,17 +223,29 @@ namespace ProxyCore.Editor.Graph {
             GUILayout.Label("Unlock Graph", EditorStyles.boldLabel,
                 GUILayout.Width(90));
 
+            // In Play mode the running game owns the active profile — the pickers become a
+            // read-out of what the game selected rather than a control over it.
+            bool playing = Application.isPlaying;
+
             // Graph picker — each graph is a separate progression tree (typically a level)
-            string graphLabel = _layoutData != null ? _layoutData.DisplayLabel : "<none>";
-            if (GUILayout.Button(new GUIContent($"{graphLabel} ▾", "Switch, create, or delete unlock graphs"),
-                    EditorStyles.toolbarDropDown, GUILayout.Width(140))) {
-                ShowGraphMenu();
+            using (new EditorGUI.DisabledScope(playing)) {
+                string graphLabel = _layoutData != null ? _layoutData.DisplayLabel : "<none>";
+                if (GUILayout.Button(new GUIContent($"{graphLabel} ▾", "Switch, create, or delete unlock graphs"),
+                        EditorStyles.toolbarDropDown, GUILayout.Width(140))) {
+                    ShowGraphMenu();
+                }
             }
 
             // Save slot picker — each slot is its own runtime save file
-            using (new EditorGUI.DisabledScope(_layoutData == null)) {
-                string slotLabel = _layoutData != null ? _layoutData.ActiveSlot : "—";
-                if (GUILayout.Button(new GUIContent($"💾 {slotLabel} ▾", "Switch, create, or delete save slots for this graph"),
+            using (new EditorGUI.DisabledScope(playing || _layoutData == null)) {
+                string slotLabel = playing
+                    ? (string.IsNullOrEmpty(SaveProfile.Active) ? "<default>" : SaveProfile.Active)
+                    : _layoutData != null ? _layoutData.ActiveSlot : "—";
+                string slotTooltip = playing
+                    ? "Live save profile selected by the running game. The graph's own slot is " +
+                      "restored on exiting Play mode."
+                    : "Switch, create, or delete save slots for this graph";
+                if (GUILayout.Button(new GUIContent($"💾 {slotLabel} ▾", slotTooltip),
                         EditorStyles.toolbarDropDown, GUILayout.Width(120))) {
                     ShowSaveSlotMenu();
                 }
@@ -776,6 +791,15 @@ namespace ProxyCore.Editor.Graph {
 
         private void DeleteActiveSaveSlot() {
             if (_layoutData == null || _layoutData.saveSlots.Count <= 1) return;
+
+            // The erase below runs against whatever profile is active. In Play mode that is the
+            // running game's, not this graph's, so deleting here would wipe the player's save.
+            if (Application.isPlaying) {
+                EditorUtility.DisplayDialog("Delete Save",
+                    "Save slots cannot be deleted while in Play mode — the running game owns the " +
+                    "active save profile.", "OK");
+                return;
+            }
 
             string slot = _layoutData.ActiveSlot;
             if (!EditorUtility.DisplayDialog("Delete Save",

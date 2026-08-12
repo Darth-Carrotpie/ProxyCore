@@ -321,12 +321,27 @@ and deletes them; the **`💾` dropdown** manages that graph's save slots.
 
 A graph owns its node layout, groups, colours, **registry filter**, and save slot list.
 The registry filter is how a graph is scoped to a level — hide the registries that level does
-not use. Selecting a save slot calls `UnlockManager.SetSaveProfile("{graphId}_{slot}")`.
+not use. Selecting a save slot calls
+`UnlockManager.SetSaveProfile(SaveProfile.Id(graphId, slot))`.
+
+Each graph has a **Graph Id**, auto-generated and editable in the asset's inspector. Bind it
+to an id the game itself uses (a level or scenario id) and the graph previews exactly the
+profile the game selects with `SaveProfile.Id(thatId, slot)`, slot names included — because
+both sides compose through `SaveProfile.Id`, no hand-encoding is needed. Clearing the field
+mints a fresh id.
+
+The graph window never repoints `UnlockManager` in **Play Mode** — the running game owns the
+active profile there. The pickers go read-only and the `💾` label shows the live
+`SaveProfile.Active`; the graph's own slot is restored on exiting Play Mode.
 
 Definition nodes carry a 🔒/🔓 button that locks or unlocks that definition on the spot, in
 **Edit Mode as well as Play Mode**, writing to the active save profile. Useful for testing a
 progression state without playing to it — but it mutates real save data, so pick a scratch
 save slot first.
+
+The **Cleanup** dialog lists Used / Mismatched / **Ineffective** / Unused conditions.
+Ineffective means trivially true: a `DefinitionUnlockedCondition` whose target has
+`IsUnlockedByDefault` gates nothing. Editing such an asset also logs a warning.
 
 ## Common mistakes
 
