@@ -1,0 +1,16 @@
+{
+    "name": "ProxyCore.Samples.Basic",
+    "rootNamespace": "",
+    "references": [
+        "GUID:743e714a170ec4247bde9d621adf18a9"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
