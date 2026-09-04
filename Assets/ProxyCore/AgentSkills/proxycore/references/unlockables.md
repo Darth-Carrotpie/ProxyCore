@@ -115,8 +115,8 @@ UnlockManager.ResetSavedUnlocks();   // clears saved unlocks AND lock overrides,
 UnlockManager.ResetSessionUnlocks(); // clears session-only unlocks
 
 // Save profiles — one save file per save game:
-UnlockManager.SetSaveProfile("level1_slot2"); // → unlocks_level1_slot2.json
-string profile = UnlockManager.SaveProfile;   // "" = default unlocks.json
+UnlockManager.SetSaveProfile("level1_slot2"); // → proxycore/level1_slot2/unlocks.json
+string profile = SaveProfile.Active;          // "" = default (flat) unlocks.json
 ```
 
 The static form (`UnlockManager.Unlock(item)`) is preferred and equivalent to
@@ -274,6 +274,44 @@ fields (and `GameFlagCollection._onFlagChanged`). They fire with a
 `StringPayload(key)` through the `EventCoordinator`, so UI can listen via
 `ListenEvent.*` (see `references/events.md`) and refresh without polling.
 
+They are **transition-only** and never replayed. Auto-unlocks run in `UnlockManager.OnAwake`
+and on every profile switch, before any UI exists, so do **not** reconstruct "what's new"
+from broadcasts — use provenance below.
+
+## Unlock provenance & acknowledgement (durable "what's new")
+
+Every unlocked key carries a persisted record: when it was unlocked, and whether the player
+has been shown it. Queryable from any script at any time, no listener required.
+
+```csharp
+int marker = UnlockManager.UnlockMarker;                  // match start / boot — store the int
+foreach (var r in UnlockManager.GetUnlocksSince(marker))  // earned since
+    Show(r.Key);
+
+foreach (var r in UnlockManager.GetUnacknowledgedUnlocks()) Badge(r.Key);  // survives a quit
+UnlockManager.AcknowledgeAllUnlocked();                   // player closed the screen
+
+UnlockManager.SetAcknowledgedByKey(key, false);           // un-mark (the primitive)
+UnlockManager.TryGetUnlockRecord(key, out var rec);       // false if not unlocked
+```
+
+`UnlockRecord`: `Key`, `Ordinal`, `UnlockedAtUnixSeconds` (+ `UnlockedAtUtc`, `HasTimestamp`),
+`Acknowledged`, `IsSessionOnly`. Queries never return null and are ordered by ordinal.
+
+Non-obvious behaviour:
+- The marker is a **monotonic int per profile**, not a time — never ties, never reused, immune
+  to clock changes. The timestamp is display/debug only; ProxyCore never orders by it.
+- A record lives only while its key is unlocked. `Lock()` drops it, so re-unlocking mints a
+  fresh ordinal and reads as unacknowledged again — `SetAcknowledgedByKey(key, true)` to opt out.
+- Session-only unlocks get records (`IsSessionOnly`), never written to disk, gone on scene reload.
+- Markers are per profile — re-capture on `SaveProfile.ProfileChanged`.
+- Acknowledgement honours `SaveProfile.AutoSave` exactly as unlocks do.
+- Saves predating this feature load with ordinal `0`, `acknowledged = true`, so an existing save
+  never presents its whole back catalogue as new.
+
+Host game's job: holding the marker, defining a "match", when to acknowledge, any time-based
+rule, mapping keys back to definitions for display.
+
 ## Editor: custom conditions in the Unlock Graph
 
 The Unlock Dependency Graph (**ProxyCore ▸ Unlock Dependency Graph**) can draw a direct
@@ -310,8 +348,10 @@ internal sealed class QuestDefinitionEdgeStrategy : IDefinitionEdgeStrategy
 when the pass mode changes. Only needed for custom edge conditions; built-ins already
 have strategies.
 
-Menu actions: **ProxyCore ▸ Unlock Debug Window** (live saved/session keys in Play
-Mode), **ProxyCore ▸ Unlockable Actions ▸ Clear Save Data / Reset Session Unlocks**.
+Menu actions: **ProxyCore ▸ Unlock Debug Window** (live saved/session/locked-override keys in
+Play Mode, each with ordinal, age and an acknowledged toggle; marker, `Acknowledge All` and an
+unacknowledged-only filter), **ProxyCore ▸ Unlockable Actions ▸ Clear Save Data / Reset Session
+Unlocks**.
 
 ## Editor: multiple graphs & save slots
 

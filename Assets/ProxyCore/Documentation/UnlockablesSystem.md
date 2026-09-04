@@ -123,6 +123,8 @@ symmetry only — overrides always persist, so it no longer selects a storage ti
 - `SavesAcrossSessions = false` → key is session-only; cleared on every scene reload.
 - `IsUnlockedByDefault = true` → item is treated as unlocked without any explicit `Unlock()` call. An explicit `Lock()` overrides this until the next `Unlock()`.
 - Lock overrides are always persisted, regardless of `SavesAcrossSessions`.
+- Each saved key also carries a provenance record (ordinal, timestamp, acknowledged flag) — see
+  [Unlock provenance](#unlock-provenance--acknowledgement). Older files carry none and migrate on load.
 
 ### Save profiles (one save game per profile)
 
@@ -228,6 +230,46 @@ should represent a deliberate game action (e.g. quest completed), not a default-
 
 Assign `EventMessage` assets to `_onUnlocked` / `_onLocked` in the `UnlockManager` inspector.
 Both fire with a `StringPayload(unlockKey)` through the `EventCoordinator`.
+
+They are **transition-only** and never replayed. Auto-unlocks run in `OnAwake` and on every
+profile switch, before any UI exists — so don't rebuild "what's new" from broadcasts. Use
+provenance below.
+
+### Unlock provenance & acknowledgement
+
+Every unlocked key carries a persisted record of when it was unlocked and whether the player has
+been shown it. Queryable from any script at any time; no listener need have been alive.
+
+```csharp
+int marker = UnlockManager.UnlockMarker;                  // match start / boot — store the int
+foreach (var r in UnlockManager.GetUnlocksSince(marker))  // what was earned since
+    Show(r.Key);
+
+foreach (var r in UnlockManager.GetUnacknowledgedUnlocks()) Badge(r.Key);   // survives a quit
+UnlockManager.AcknowledgeAllUnlocked();                   // player closed the screen
+```
+
+Also: `TryGetUnlockRecord(key, out r)`, `SetAcknowledgedByKey(key, bool)` (the primitive — `false`
+un-marks), and `Acknowledge` / `AcknowledgeByKey` / `AcknowledgeAll` / `AcknowledgeAllByKeys`.
+`UnlockRecord` = `Key`, `Ordinal`, `UnlockedAtUnixSeconds` (+ `UnlockedAtUtc`, `HasTimestamp`),
+`Acknowledged`, `IsSessionOnly`. Queries never return null and are ordered by ordinal.
+
+Non-obvious behaviour:
+
+- The marker is a monotonic `int`, not a time. The timestamp is for display only — ProxyCore
+  never orders or filters by it, so no clock change can perturb progress.
+- A record lives only while its key is unlocked. `Lock()` drops it, so re-unlocking mints a fresh
+  ordinal and reads as unacknowledged again. `SetAcknowledgedByKey(key, true)` after to opt out.
+- Session-only unlocks get records (`IsSessionOnly`), never written to disk, gone on scene reload
+  — so acknowledging one is not durable either.
+- Markers are **per profile**; re-capture on `SaveProfile.ProfileChanged`.
+- Acknowledgement honours `SaveProfile.AutoSave` exactly as unlocks do.
+- Saves written before this feature load with ordinal `0` and `acknowledged = true`, so an
+  existing save never presents its whole back catalogue as "NEW". Ordinal `0` is below every
+  minted ordinal, so those keys never satisfy `GetUnlocksSince`.
+
+Host game's job: holding the marker, defining a "match", when to acknowledge, any time-based
+rule, and mapping keys back to definitions for display.
 
 ---
 
@@ -340,7 +382,7 @@ replace stale wrong-type conditions automatically when the pass mode changes. Se
 
 | Tool | Access | Purpose |
 |---|---|---|
-| `UnlockDebugWindow` | Scene View toolbar lock icon | Live view of saved / session unlock keys during Play Mode |
+| `UnlockDebugWindow` | Scene View toolbar lock icon | Live saved / session / locked-override keys during Play Mode, each with its ordinal, age and acknowledged toggle; marker, `Acknowledge All` and an unacknowledged-only filter in the toolbar |
 | `ProxyCore > Unlockable Actions > Clear Save Data` | Menu bar | Deletes the **active save profile's** file; works in Edit and Play Mode |
 | `ProxyCore > Unlockable Actions > Reset Session Unlocks` | Menu bar | Clears session-only unlocks; Play Mode only |
 | `ProxyCore > Unlockable Actions > Refresh Unlock Registries` | Menu bar | Repopulates the manager's auto-unlock registry list |
@@ -390,6 +432,7 @@ Runtime/Unlockables/
   IUnlockable.cs
   UnlockBehavior.cs
   UnlockSaveData.cs
+  UnlockRecord.cs                    ← public provenance snapshot returned by the query API
   UnlockManager.cs
   StandaloneUnlockable.cs
   ConditionMode.cs

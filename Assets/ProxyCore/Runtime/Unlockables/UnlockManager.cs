@@ -47,6 +47,19 @@ namespace ProxyCore {
         // session-only locks must stop persisting.
         private HashSet<string> _lockedOverrides = new HashSet<string>();
 
+        // Provenance for every key currently unlocked, keyed by unlock key.
+        // Invariant: _records.Keys == _savedUnlocked ∪ _sessionUnlocked — MintRecord adds,
+        // ReconcileRecords prunes, and UnlockProvenanceTests asserts it after every mutation.
+        // Session-ness is derived from set membership rather than stored, so WriteToDisk
+        // simply filters on _savedUnlocked and session records never reach disk.
+        private Dictionary<string, UnlockRecordData> _records = new Dictionary<string, UnlockRecordData>();
+
+        // Ordinal the next unlock takes. Only ever increases within a profile. Deliberately not
+        // rewound by ResetSavedUnlocks or a scene reload: a marker a caller is still holding must
+        // never start hiding unlocks that happened after it. Only a profile switch resets it,
+        // and Load() immediately restores the incoming profile's value.
+        private int _nextOrdinal = 1;
+
         [Header("Auto-unlock Registries")]
         [Tooltip("Registries scanned each time any item is unlocked. Any definition implementing IHasPrerequisites with AutoUnlock=true will unlock automatically when its prerequisites pass. Use the Refresh button or ProxyCore > Unlock Actions > Refresh Unlock Registries to populate.")]
         [SerializeField] private List<RegistryEntry> _registries = new List<RegistryEntry>();
@@ -97,6 +110,9 @@ namespace ProxyCore {
             // Only session state resets here. _lockedOverrides is saved state — it is
             // reloaded from disk with _savedUnlocked and cleared by Unlock()/ResetSavedUnlocks().
             _sessionUnlocked.Clear();
+            // Session records die with the session unlocks they describe. _nextOrdinal is left
+            // alone so their ordinals are never handed out a second time.
+            ReconcileRecords();
         }
 
         #endregion
@@ -111,6 +127,11 @@ namespace ProxyCore {
             _savedUnlocked.Clear();
             _sessionUnlocked.Clear();
             _lockedOverrides.Clear();
+            // Provenance and the ordinal counter are per profile: a marker captured under the
+            // outgoing profile means nothing under the incoming one. Load() restores the
+            // incoming profile's counter, or leaves it at 1 when that profile has no file yet.
+            _records.Clear();
+            _nextOrdinal = 1;
             Load();
         }
 
@@ -123,6 +144,9 @@ namespace ProxyCore {
 
         /// <summary>Keys unlocked this session only (not written to disk).</summary>
         public static IReadOnlyCollection<string> SessionUnlockedKeys => Instance?._sessionUnlocked;
+
+        /// <summary>Keys explicitly locked via Lock(), outranking IsUnlockedByDefault.</summary>
+        public static IReadOnlyCollection<string> LockedOverrideKeys => Instance?._lockedOverrides;
 
         #endregion
 
@@ -174,6 +198,7 @@ namespace ProxyCore {
             bool nowUnlocked = savesAcrossSessions
                 ? inst._savedUnlocked.Add(key)
                 : inst._sessionUnlocked.Add(key);
+            if (nowUnlocked) inst.MintRecord(key);
             if (!clearedOverride && !nowUnlocked) return;
 
             if (clearedOverride || savesAcrossSessions) inst.Save();
@@ -197,6 +222,9 @@ namespace ProxyCore {
             // "Locked" means "not unlocked" — clear both sets so IsUnlockedByKey agrees with IsUnlocked.
             bool removedSaved = inst._savedUnlocked.Remove(key);
             bool removedSession = inst._sessionUnlocked.Remove(key);
+            // The record describes being unlocked, so it dies with the unlock. A later Unlock()
+            // mints a fresh ordinal and acknowledged = false, re-badging the key as new.
+            inst._records.Remove(key);
             if (!addedOverride && !removedSaved && !removedSession) return;
 
             inst.Save();
@@ -226,6 +254,7 @@ namespace ProxyCore {
                 anyPersistedChange |= clearedOverride;
                 if (item.SavesAcrossSessions) {
                     if (inst._savedUnlocked.Add(item.UnlockKey)) {
+                        inst.MintRecord(item.UnlockKey);
                         anyPersistedChange = true;
                         inst.BroadcastUnlocked(item.UnlockKey);
                     }
@@ -234,7 +263,11 @@ namespace ProxyCore {
                     }
                 }
                 else {
-                    if (inst._sessionUnlocked.Add(item.UnlockKey) || clearedOverride)
+                    // Add still runs exactly once and first, as before — hoisted only so the
+                    // mint can see whether the key was genuinely new.
+                    bool nowUnlocked = inst._sessionUnlocked.Add(item.UnlockKey);
+                    if (nowUnlocked) inst.MintRecord(item.UnlockKey);
+                    if (nowUnlocked || clearedOverride)
                         inst.BroadcastUnlocked(item.UnlockKey);
                 }
             }
@@ -253,6 +286,7 @@ namespace ProxyCore {
                 bool addedOverride = inst._lockedOverrides.Add(item.UnlockKey);
                 bool removedSaved = inst._savedUnlocked.Remove(item.UnlockKey);
                 bool removedSession = inst._sessionUnlocked.Remove(item.UnlockKey);
+                inst._records.Remove(item.UnlockKey);
                 if (!addedOverride && !removedSaved && !removedSession) continue;
 
                 anyPersistedChange = true;
@@ -273,6 +307,7 @@ namespace ProxyCore {
                 anyPersistedChange |= clearedOverride;
                 if (saves) {
                     if (inst._savedUnlocked.Add(key)) {
+                        inst.MintRecord(key);
                         anyPersistedChange = true;
                         inst.BroadcastUnlocked(key);
                     }
@@ -281,7 +316,11 @@ namespace ProxyCore {
                     }
                 }
                 else {
-                    if (inst._sessionUnlocked.Add(key) || clearedOverride)
+                    // Add still runs exactly once and first, as before — hoisted only so the
+                    // mint can see whether the key was genuinely new.
+                    bool nowUnlocked = inst._sessionUnlocked.Add(key);
+                    if (nowUnlocked) inst.MintRecord(key);
+                    if (nowUnlocked || clearedOverride)
                         inst.BroadcastUnlocked(key);
                 }
             }
@@ -300,6 +339,7 @@ namespace ProxyCore {
                 bool addedOverride = inst._lockedOverrides.Add(key);
                 bool removedSaved = inst._savedUnlocked.Remove(key);
                 bool removedSession = inst._sessionUnlocked.Remove(key);
+                inst._records.Remove(key);
                 if (!addedOverride && !removedSaved && !removedSession) continue;
 
                 anyPersistedChange = true;
@@ -335,8 +375,10 @@ namespace ProxyCore {
 
             var purged = new List<string>();
             foreach (var key in sessionOnlyKeys) {
-                if (inst._savedUnlocked.Remove(key))
+                if (inst._savedUnlocked.Remove(key)) {
+                    inst._records.Remove(key);
                     purged.Add(key);
+                }
             }
 
             if (purged.Count == 0) return;
@@ -355,6 +397,9 @@ namespace ProxyCore {
             if (inst == null) return;
             inst._savedUnlocked.Clear();
             inst._lockedOverrides.Clear();
+            // Drops the records of the cleared saved keys; session records survive with their
+            // unlocks. _nextOrdinal is deliberately not rewound — see the field comment.
+            inst.ReconcileRecords();
             if (File.Exists(SavePath))
                 File.Delete(SavePath);
         }
@@ -368,6 +413,7 @@ namespace ProxyCore {
             var inst = Instance;
             if (inst == null) return;
             inst._sessionUnlocked.Clear();
+            inst.ReconcileRecords();
         }
 
         /// <summary>
@@ -401,8 +447,19 @@ namespace ProxyCore {
         /// <summary>Writes unlock state to the active profile unconditionally.</summary>
         private void WriteToDisk() {
             var data = new UnlockSaveData();
+            data.version = UnlockSaveData.CURRENT_VERSION;
             data.savedUnlockedKeys.AddRange(_savedUnlocked);
             data.lockedOverrideKeys.AddRange(_lockedOverrides);
+            data.nextOrdinal = _nextOrdinal;
+
+            // Only saved keys get provenance on disk. Session records are dropped here rather
+            // than filtered out of _records, so a session unlock stays queryable in memory while
+            // never surviving a restart.
+            foreach (var key in _savedUnlocked) {
+                if (_records.TryGetValue(key, out var record))
+                    data.unlockRecords.Add(record);
+            }
+
             SaveProfile.WriteAtomic(SavePath, JsonUtility.ToJson(data, prettyPrint: true));
         }
 
@@ -413,8 +470,11 @@ namespace ProxyCore {
             // Returns null when missing, and quarantines the file when it cannot be parsed
             // rather than losing it silently — see SaveProfile.ReadJson.
             var data = SaveProfile.ReadJson<UnlockSaveData>(SavePath);
-            if (data == null)
+            if (data == null) {
+                // Records for the saved keys just cleared would otherwise linger as orphans.
+                ReconcileRecords();
                 return;
+            }
 
             if (data.savedUnlockedKeys != null) {
                 foreach (var key in data.savedUnlockedKeys)
@@ -426,6 +486,252 @@ namespace ProxyCore {
                 foreach (var key in data.lockedOverrideKeys)
                     _lockedOverrides.Add(key);
             }
+
+            LoadRecords(data);
+        }
+
+        /// <summary>
+        /// Rebuilds provenance from a loaded file, synthesising records for keys that predate it.
+        ///
+        /// A file written before provenance existed carries version 0 and no records, so every
+        /// saved key is migrated to ordinal 0 with acknowledged = true. Zero sits below every
+        /// minted ordinal, so <see cref="GetUnlocksSince"/> can never surface a back catalogue as
+        /// "since my marker"; acknowledged = true stops a live save presenting everything the
+        /// player already owns as new on the first boot after the update. The cost is that an
+        /// unlock genuinely earned but unseen just before the update is treated as seen —
+        /// silent and one-off, which is the better failure than loud and total.
+        /// </summary>
+        private void LoadRecords(UnlockSaveData data) {
+            int highestOrdinal = 0;
+
+            if (data.unlockRecords != null) {
+                foreach (var record in data.unlockRecords) {
+                    if (record == null || string.IsNullOrEmpty(record.key)) continue;
+                    _records[record.key] = record;
+                    if (record.ordinal > highestOrdinal) highestOrdinal = record.ordinal;
+                }
+            }
+
+            // Any saved key the file carries no record for — a pre-provenance file, or one
+            // hand-edited to add a key. Both want the same conservative defaults.
+            foreach (var key in _savedUnlocked) {
+                if (_records.ContainsKey(key)) continue;
+                _records[key] = new UnlockRecordData {
+                    key = key,
+                    ordinal = 0,
+                    // Honestly unknown. Stamping "now" would date the entire back catalogue to
+                    // the moment of the update and lie to anything displaying the timestamp.
+                    unlockedAtUtc = 0,
+                    acknowledged = true,
+                };
+            }
+
+            // Drops records for keys the file no longer lists.
+            ReconcileRecords();
+
+            // Trust the stored counter, but never let a hand-edited or truncated one hand out an
+            // ordinal a record already holds — including one just pruned, whose ordinal must
+            // stay retired so a caller's marker keeps meaning what it meant.
+            _nextOrdinal = Mathf.Max(Mathf.Max(data.nextOrdinal, highestOrdinal + 1), 1);
+        }
+
+        #endregion
+
+        #region Public API — Provenance & acknowledgement
+
+        /// <summary>
+        /// Highest unlock ordinal handed out so far in the active profile. Capture this at a
+        /// point you care about — match start, boot, opening a rewards screen — and pass it back
+        /// to <see cref="GetUnlocksSince"/> later to get exactly what was unlocked in between.
+        ///
+        /// Unlike the onUnlocked EventMessage, this needs no listener to have been alive: it
+        /// answers correctly even for the auto-unlock pass that runs during OnAwake, before any
+        /// UI exists.
+        ///
+        /// The marker is scoped to the active save profile. Discard and re-capture held markers
+        /// when <see cref="ProxyCore.SaveProfile.ProfileChanged"/> fires — a marker from one
+        /// profile means nothing in another.
+        /// </summary>
+        public static int UnlockMarker {
+            get {
+                var inst = Instance;
+                return inst != null ? inst._nextOrdinal - 1 : 0;
+            }
+        }
+
+        /// <summary>
+        /// Every currently unlocked key the host has not yet acknowledged, oldest first.
+        /// Survives quitting: an unlock earned but never shown is still here at next boot.
+        /// Includes session-only unlocks, flagged with <see cref="UnlockRecord.IsSessionOnly"/>.
+        /// Never null.
+        /// </summary>
+        public static IReadOnlyList<UnlockRecord> GetUnacknowledgedUnlocks() {
+            var inst = Instance;
+            if (inst == null) return System.Array.Empty<UnlockRecord>();
+
+            var results = new List<UnlockRecord>();
+            foreach (var pair in inst._records) {
+                if (pair.Value.acknowledged) continue;
+                results.Add(inst.ToRecord(pair.Value));
+            }
+            results.Sort(CompareByOrdinal);
+            return results;
+        }
+
+        /// <summary>
+        /// Every key unlocked after the given marker, oldest first. Pass a value previously read
+        /// from <see cref="UnlockMarker"/>; pass 0 for "everything unlocked this profile since
+        /// provenance began" (which excludes keys migrated from a pre-provenance save).
+        /// Never null.
+        /// </summary>
+        public static IReadOnlyList<UnlockRecord> GetUnlocksSince(int marker) {
+            var inst = Instance;
+            if (inst == null) return System.Array.Empty<UnlockRecord>();
+
+            var results = new List<UnlockRecord>();
+            foreach (var pair in inst._records) {
+                if (pair.Value.ordinal <= marker) continue;
+                results.Add(inst.ToRecord(pair.Value));
+            }
+            results.Sort(CompareByOrdinal);
+            return results;
+        }
+
+        /// <summary>
+        /// Looks up provenance for one key. False when the key is not currently unlocked —
+        /// records exist only for unlocked keys.
+        /// </summary>
+        public static bool TryGetUnlockRecord(string key, out UnlockRecord record) {
+            var inst = Instance;
+            if (inst != null && key != null && inst._records.TryGetValue(key, out var data)) {
+                record = inst.ToRecord(data);
+                return true;
+            }
+            record = default;
+            return false;
+        }
+
+        /// <summary>
+        /// Sets whether the player has been shown this unlock. The single acknowledgement
+        /// primitive — the Acknowledge helpers all route through it. Passing false un-marks a
+        /// key, which is what the debug window's per-row toggle uses.
+        ///
+        /// Acknowledgement is independent of unlock state, but a record only exists while the
+        /// key is unlocked: locking drops it, so a later unlock starts unacknowledged again.
+        /// No-op for a key that is not currently unlocked.
+        /// </summary>
+        public static void SetAcknowledgedByKey(string key, bool acknowledged) {
+            var inst = Instance;
+            if (inst == null) return;
+            if (inst.SetAcknowledgedInternal(key, acknowledged)) inst.Save();
+        }
+
+        public static void Acknowledge(IUnlockable item) => AcknowledgeByKey(item.UnlockKey);
+
+        public static void AcknowledgeByKey(string key) => SetAcknowledgedByKey(key, true);
+
+        /// <summary>Acknowledges every item in the collection, writing to disk once.</summary>
+        public static void AcknowledgeAll(IEnumerable<IUnlockable> items) {
+            var inst = Instance;
+            if (inst == null || items == null) return;
+
+            bool anyPersistedChange = false;
+            foreach (var item in items)
+                anyPersistedChange |= inst.SetAcknowledgedInternal(item.UnlockKey, true);
+            if (anyPersistedChange) inst.Save();
+        }
+
+        /// <summary>Acknowledges every key in the collection, writing to disk once.</summary>
+        public static void AcknowledgeAllByKeys(IEnumerable<string> keys) {
+            var inst = Instance;
+            if (inst == null || keys == null) return;
+
+            bool anyPersistedChange = false;
+            foreach (var key in keys)
+                anyPersistedChange |= inst.SetAcknowledgedInternal(key, true);
+            if (anyPersistedChange) inst.Save();
+        }
+
+        /// <summary>
+        /// Acknowledges everything currently unlocked, writing to disk once. The "player closed
+        /// the rewards screen" call.
+        /// </summary>
+        public static void AcknowledgeAllUnlocked() {
+            var inst = Instance;
+            if (inst == null) return;
+
+            bool anyPersistedChange = false;
+            foreach (var pair in inst._records) {
+                if (pair.Value.acknowledged) continue;
+                pair.Value.acknowledged = true;
+                if (inst._savedUnlocked.Contains(pair.Key)) anyPersistedChange = true;
+            }
+            if (anyPersistedChange) inst.Save();
+        }
+
+        #endregion
+
+        #region Provenance internals
+
+        /// <summary>
+        /// Stamps a key that has just entered an unlock set. Always overwrites, so a key that
+        /// was locked and unlocked again gets a fresh ordinal and reads as unacknowledged.
+        /// The ordinal is minted in memory regardless of AutoSave, so unlock order stays
+        /// coherent within a session even when nothing is flushed.
+        /// </summary>
+        private void MintRecord(string key) {
+            _records[key] = new UnlockRecordData {
+                key = key,
+                ordinal = _nextOrdinal++,
+                unlockedAtUtc = System.DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                acknowledged = false,
+            };
+        }
+
+        /// <summary>
+        /// Restores the invariant that a record exists only for a currently unlocked key, after
+        /// any operation that clears a whole set. Retired ordinals are never reissued — see
+        /// _nextOrdinal.
+        /// </summary>
+        private void ReconcileRecords() {
+            if (_records.Count == 0) return;
+
+            List<string> orphans = null;
+            foreach (var key in _records.Keys) {
+                if (_savedUnlocked.Contains(key) || _sessionUnlocked.Contains(key)) continue;
+                (orphans ??= new List<string>()).Add(key);
+            }
+
+            if (orphans == null) return;
+            foreach (var key in orphans)
+                _records.Remove(key);
+        }
+
+        /// <summary>
+        /// Applies an acknowledgement. Returns true only when a <b>persisted</b> record actually
+        /// changed, so callers can batch and skip a pointless whole-file rewrite: session
+        /// records never reach disk, so changing one is not worth a write.
+        /// </summary>
+        private bool SetAcknowledgedInternal(string key, bool acknowledged) {
+            if (key == null || !_records.TryGetValue(key, out var record)) return false;
+            if (record.acknowledged == acknowledged) return false;
+
+            record.acknowledged = acknowledged;
+            return _savedUnlocked.Contains(key);
+        }
+
+        private UnlockRecord ToRecord(UnlockRecordData data) =>
+            new UnlockRecord(data.key, data.ordinal, data.unlockedAtUtc, data.acknowledged,
+                _sessionUnlocked.Contains(data.key));
+
+        /// <summary>
+        /// Minted ordinals are unique, but every key migrated from a pre-provenance file shares
+        /// ordinal 0 — so the key breaks the tie and the returned order stays total, repeatable
+        /// across calls, and independent of dictionary iteration order.
+        /// </summary>
+        private static int CompareByOrdinal(UnlockRecord a, UnlockRecord b) {
+            int byOrdinal = a.Ordinal.CompareTo(b.Ordinal);
+            return byOrdinal != 0 ? byOrdinal : string.CompareOrdinal(a.Key, b.Key);
         }
 
         #endregion
