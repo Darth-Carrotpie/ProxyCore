@@ -422,6 +422,22 @@ Open with **ProxyCore ▸ Unlock Dependency Graph**.
 
 > The node toggle mutates real save data. Select a scratch save slot before using it if you
 > do not want to disturb the default profile.
+- **Auto-Layout** — arranges the **selected** nodes only, or all of them when nothing is
+  selected. Nodes are laid out in columns by dependency depth (a node always sits right of
+  everything that unlocks it), sized from the real node rects, with each unconnected tree
+  given its own band below the previous one. Row order inside a column is driven by
+  connectivity too: alternating passes pull each node towards the average row of what feeds
+  it and what it feeds, keeping only the passes that reduce edge crossings, seeded from
+  where the nodes already sit so the result stays recognisable. The result is anchored on the selection, so
+  laying out part of a large graph does not move it elsewhere. Nothing is written to disk:
+  CTRL+Z restores the previous positions, and the arrangement is only persisted when you
+  press **Save**.
+- **Import New Definitions Here** — right-click the canvas (or a node) and pick this to pull
+  in definitions created or generated since the graph was last arranged. It refreshes the
+  registries, rebuilds, and gathers every node nobody has positioned yet into a block at the
+  cursor, selected and ready to place — instead of leaving them off the right edge of a large
+  graph. Also undoable with CTRL+Z. Once a node has been imported or dragged, it counts as
+  placed and later imports leave it alone.
 
 ---
 

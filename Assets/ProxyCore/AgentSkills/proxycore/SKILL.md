@@ -42,11 +42,12 @@ ProxyCore is a UPM git package. In the consuming project's `Packages/manifest.js
 map the package id to the repo's git URL with a version tag:
 
 ```json
-"com.shakotis.proxycore": "https://github.com/Darth-Carrotpie/ProxyCore.git#2.2.10"
+"com.shakotis.proxycore": "https://github.com/Darth-Carrotpie/ProxyCore.git#2.8.1"
 ```
 
 The id is `com.shakotis.proxycore`; the value is the git URL. Pin a real release tag
-(`#2.2.10` shown) and bump it to the newest — check the repo's releases.
+(`#2.8.1` shown) and bump it to the newest — **check the repo's releases rather than
+copying the tag above**, which is only current as of writing.
 
 Runtime code lives in the `ProxyCore` namespace; generated event accessors live in
 `ProxyCore.Generated`. A typical file starts with:
@@ -164,20 +165,29 @@ void OnDisable() => _sub?.Dispose();
 ```
 
 `TriggerEvent.<Category>.<EventShortName>` and `ListenEvent.<Category>.<EventShortName>`
-are **generated code**. They exist only after an `EventMessage` asset with that
-short name and category exists and accessors have been generated (menu
-**ProxyCore ▸ Regenerate Event Accessors**). If an accessor doesn't resolve, the
-asset or the regeneration step is missing — see the
-[events reference](references/events.md).
+are **generated code**. They exist only after an `EventMessage` asset with that short
+name exists and accessors have been generated (menu **ProxyCore ▸ Regenerate Event
+Accessors**). A category is optional — an event without one is
+`TriggerEvent.Uncategorized.X`.
+
+An accessor that compiles can still be `null` at runtime, and there are **three**
+independent causes: accessors not regenerated, the asset not registered in
+`EventCoordinator.definitions`, or the asset's ID not persisted. Matching IDs alone do
+not prove the event is reachable. See the
+[events reference](references/events.md#if-an-accessor-wont-resolve).
 
 Two things to internalize before writing event code (details in the
 [events reference](references/events.md)):
 - **Reuse and compose payloads.** Don't make one payload type per event — payloads are
   generic, shape-named data carriers (`TileCoordPayload`, `AmountPayload`) shared across
   many events and composed per event with `.With(a).With(b).With(c)`.
-- **Dispatch is synchronous and same-frame.** `.Send()` runs every listener inline, and
-  a chained cascade `A → B → C` all resolves in one frame — many listeners or deep
-  chains can spike frame time. Keep handlers cheap; defer heavy work.
+- **Dispatch is synchronous, same-frame, and never replayed.** `.Send()` runs every
+  listener inline, and a chained cascade `A → B → C` all resolves in one frame — many
+  listeners or deep chains can spike frame time. Keep handlers cheap; defer heavy work.
+  There are also **no sticky or last-value events**: a listener that subscribes after a
+  send never learns it happened, and Unity does not order `Start()` between components,
+  so a boot event sent from `Start()` can silently reach nobody. Wait a frame before a
+  boot send, or have the listener reconcile against current state.
 
 ## Utility extensions
 

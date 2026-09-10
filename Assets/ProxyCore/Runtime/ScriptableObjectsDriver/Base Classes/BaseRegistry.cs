@@ -91,19 +91,44 @@ namespace ProxyCore {
 
         public virtual void RefreshDefinitions() {
             string[] guids = UnityEditor.AssetDatabase.FindAssets($"t:{AssetTypeName}");
-            definitions.Clear();
+            var found = new List<T>(guids.Length);
 
             foreach (string guid in guids) {
                 string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
                 T def = UnityEditor.AssetDatabase.LoadAssetAtPath<T>(path);
                 if (def != null) {
-                    definitions.Add(def);
+                    found.Add(def);
                 }
             }
 
+            // Only write when the list actually changed. This runs on every definition
+            // import once autoRefresh is on, and an unconditional SetDirty/SaveAssets
+            // rewrites every registry asset on every import.
+            if (!SameDefinitions(definitions, found)) {
+                definitions.Clear();
+                definitions.AddRange(found);
+                UnityEditor.EditorUtility.SetDirty(this);
+                UnityEditor.AssetDatabase.SaveAssets();
+            }
+
+            // Rebuild either way — the in-memory dictionaries can be stale (domain reload,
+            // a definition whose ID was only just persisted) even when the list is identical.
             InitializeLookup();
-            UnityEditor.EditorUtility.SetDirty(this);
-            UnityEditor.AssetDatabase.SaveAssets();
+        }
+
+        /// <summary>
+        /// True when both lists hold the same definitions in the same order. A null hole in
+        /// <paramref name="current"/> (a deleted asset) always counts as a difference.
+        /// </summary>
+        public static bool SameDefinitions(List<T> current, List<T> found) {
+            if (current == null || current.Count != found.Count)
+                return false;
+
+            for (int i = 0; i < found.Count; i++) {
+                if (current[i] != found[i])
+                    return false;
+            }
+            return true;
         }
 #endif
     }

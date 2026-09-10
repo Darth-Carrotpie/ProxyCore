@@ -120,6 +120,7 @@ namespace ProxyCore.Editor.Graph {
             _graphView = new UnlockGraphView();
             _graphView.StretchToParentSize();
             _graphView.OnGraphChanged += OnGraphChanged;
+            _graphView.ImportNewRequested = ImportNewDefinitions;
             _graphView.HostWindow = this;
 
             var graphContainer = new VisualElement();
@@ -277,8 +278,10 @@ namespace ProxyCore.Editor.Graph {
             EditorGUI.EndDisabledGroup();
 
             // Auto-Layout
-            if (GUILayout.Button("Auto-Layout", EditorStyles.toolbarButton,
-                    GUILayout.Width(80))) {
+            if (GUILayout.Button(new GUIContent("Auto-Layout",
+                        "Arrange the selected nodes (all of them when nothing is selected). "
+                        + "CTRL+Z undoes it; nothing is written to disk until you Save."),
+                    EditorStyles.toolbarButton, GUILayout.Width(80))) {
                 UnlockGraphBuilder.AutoLayout(_graphView, _layoutData);
             }
 
@@ -849,6 +852,25 @@ namespace ProxyCore.Editor.Graph {
         // ════════════════════════════════════════════════════════════════
         // Graph rebuild
         // ════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Pulls definitions that appeared since the graph was last arranged — newly
+        /// created or generated assets — to <paramref name="graphPos"/>, so the user
+        /// does not have to hunt for them off the right edge of a large graph.
+        /// </summary>
+        private void ImportNewDefinitions(Vector2 graphPos) {
+            // Registries may not have picked the new assets up yet; opted-out registries
+            // stay opted out, same as the automatic import path.
+            RefreshAllRegistries.RefreshRegistries(respectAutoRefresh: true, showProgress: false);
+
+            RefreshCatalogEntries();
+            RebuildGraph();
+
+            int moved = _graphView.PlaceUnplacedNodesAt(graphPos);
+            ShowNotification(new GUIContent(moved == 0
+                ? "No new definitions to import"
+                : $"Imported {moved} node(s) — CTRL+Z to undo"));
+        }
 
         private void RebuildGraph() {
             if (_graphView == null) return;

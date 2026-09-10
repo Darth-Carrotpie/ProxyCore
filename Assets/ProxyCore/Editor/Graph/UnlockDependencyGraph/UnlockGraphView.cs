@@ -45,6 +45,13 @@ namespace ProxyCore.Editor.Graph {
         // ── Events for the host window ───────────────────────────────────
         public event Action OnGraphChanged;
 
+        /// <summary>
+        /// Raised with a graph-space position when the user asks to import definitions
+        /// that are not in the graph yet. The window re-scans the registries, rebuilds,
+        /// and then calls <see cref="PlaceUnplacedNodesAt"/> at that position.
+        /// </summary>
+        internal Action<Vector2> ImportNewRequested;
+
         internal void NotifyGraphChanged() => OnGraphChanged?.Invoke();
 
         private MiniMap _miniMap;
@@ -150,6 +157,14 @@ namespace ProxyCore.Editor.Graph {
                     _ => CreateConditionAsset(type, mousePos));
             }
 
+            // ── Import definitions that are not on the canvas yet ──
+            evt.menu.AppendSeparator();
+            evt.menu.AppendAction("Import New Definitions Here",
+                _ => ImportNewRequested?.Invoke(mousePos),
+                ImportNewRequested != null
+                    ? DropdownMenuAction.Status.Normal
+                    : DropdownMenuAction.Status.Disabled);
+
             // ── Group actions ────────────────────────────────────────
             if (selection.OfType<ISelectable>().Any(s => s is DefinitionNode or ConditionNode)) {
                 evt.menu.AppendSeparator();
@@ -188,6 +203,12 @@ namespace ProxyCore.Editor.Graph {
             // ── Nodes moved — persist positions ──────────────────────
             if (change.movedElements != null && _layoutData != null) {
                 bool dirty = false;
+
+                // Fires once, when the drag ends, so this is one undo entry per drag.
+                if (change.movedElements.Any(el =>
+                        el is DefinitionNode or ConditionNode or UnlockGraphGroup))
+                    Undo.RegisterCompleteObjectUndo(_layoutData, "Move graph nodes");
+
                 foreach (var el in change.movedElements) {
                     if (el is DefinitionNode dn) {
                         _layoutData.SetNodePosition(dn.AssetGuid,
@@ -1193,8 +1214,82 @@ namespace ProxyCore.Editor.Graph {
         // ════════════════════════════════════════════════════════════════
 
         private void OnUndoRedo() {
-            // The host window should rebuild the graph
+            // Undo restores the layout asset, but node positions live on VisualElements
+            // that Unity's undo never touches — so re-read them off the asset. This
+            // is what makes CTRL+Z undo an auto-layout.
+            ApplyLayoutPositions();
             OnGraphChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// Re-reads every visible node's position from the layout asset. Idempotent —
+        /// the asset is the source of truth for positions.
+        /// </summary>
+        public void ApplyLayoutPositions() {
+            if (_layoutData == null) return;
+
+            foreach (var node in nodes.ToList()) {
+                string key = UnlockGraphBuilder.LayoutKeyOf(node);
+                if (key == null) continue;
+
+                var entry = _layoutData.GetNodeEntry(key);
+                if (entry == null) continue;
+
+                node.SetPosition(new Rect(entry.position, Vector2.zero));
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        // Import of newly-appeared definitions
+        // ════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Gathers every visible node nobody has deliberately placed yet — definitions
+        /// created or generated since the graph was last arranged — into a tidy block
+        /// at <paramref name="graphPos"/>, and selects them.
+        ///
+        /// Without this, a refresh drops new definitions past the right edge of the
+        /// whole graph, where they are hard to find. Undoable, and not saved until the
+        /// user saves.
+        /// </summary>
+        /// <returns>How many nodes were moved.</returns>
+        public int PlaceUnplacedNodesAt(Vector2 graphPos) {
+            if (_layoutData == null) return 0;
+
+            var unplaced = nodes.ToList()
+                .Where(n => n is DefinitionNode or ConditionNode && n.visible)
+                .Where(n => {
+                    string key = UnlockGraphBuilder.LayoutKeyOf(n);
+                    return key != null && _layoutData.IsUnplaced(key);
+                })
+                .OrderBy(n => n.title)
+                .ToList();
+
+            if (unplaced.Count == 0) return 0;
+
+            Undo.RegisterCompleteObjectUndo(_layoutData, "Import new definitions");
+
+            const int columns = 4;
+            const float gap = 40f;
+            float cellWidth = unplaced.Max(n => Mathf.Max(n.GetPosition().width, 220f)) + gap;
+            float cellHeight = unplaced.Max(n => Mathf.Max(n.GetPosition().height, 130f)) + gap;
+
+            for (int i = 0; i < unplaced.Count; i++) {
+                var pos = graphPos + new Vector2(
+                    i % columns * cellWidth,
+                    i / columns * cellHeight);
+
+                unplaced[i].SetPosition(new Rect(pos, Vector2.zero));
+                // autoPlaced:false — these now count as placed and stay put on refresh.
+                _layoutData.SetNodePosition(UnlockGraphBuilder.LayoutKeyOf(unplaced[i]), pos);
+            }
+
+            ClearSelection();
+            foreach (var node in unplaced)
+                AddToSelection(node);
+
+            NotifyGraphChanged();
+            return unplaced.Count;
         }
 
         // ════════════════════════════════════════════════════════════════

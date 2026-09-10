@@ -91,6 +91,11 @@ namespace ProxyCore.Editor {
         public class NodeLayoutEntry {
             public string assetGuid;
             public Vector2 position;
+
+            [Tooltip("True while the node sits where the graph dropped it on import. " +
+                     "Cleared once the user moves or imports it deliberately, which is what " +
+                     "\"Import New Definitions\" uses to find nodes nobody has placed yet.")]
+            public bool autoPlaced;
         }
 
         public NodeLayoutEntry GetNodeEntry(string guid) {
@@ -99,13 +104,20 @@ namespace ProxyCore.Editor {
             return null;
         }
 
-        public void SetNodePosition(string guid, Vector2 pos) {
+        public void SetNodePosition(string guid, Vector2 pos, bool autoPlaced = false) {
             var entry = GetNodeEntry(guid);
             if (entry == null) {
                 entry = new NodeLayoutEntry { assetGuid = guid };
                 nodes.Add(entry);
             }
             entry.position = pos;
+            entry.autoPlaced = autoPlaced;
+        }
+
+        /// <summary>True when no one has deliberately placed this node yet.</summary>
+        public bool IsUnplaced(string guid) {
+            var entry = GetNodeEntry(guid);
+            return entry == null || entry.autoPlaced;
         }
 
         public void RemoveNodeEntry(string guid) {

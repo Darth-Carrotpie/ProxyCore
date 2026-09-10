@@ -13,8 +13,9 @@ static accessors.
 - [Payload design: reuse and compose](#payload-design-reuse-and-compose)
 - [Writing a payload](#writing-a-payload)
 - [Chaining and ordering events](#chaining-and-ordering-events)
-- [Danger zone: dispatch is synchronous and same-frame](#danger-zone-dispatch-is-synchronous-and-same-frame)
+- [Danger zone: dispatch is synchronous, same-frame, and never replayed](#danger-zone-dispatch-is-synchronous-same-frame-and-never-replayed)
 - [Events, categories, and generating accessors](#events-categories-and-generating-accessors)
+- [Where the generated files land](#where-the-generated-files-land)
 - [Validation and debugging](#validation-and-debugging)
 - [Common mistakes](#common-mistakes)
 
@@ -27,10 +28,13 @@ static accessors.
   (`Create ▸ Definitions ▸ Category Definition`). Each category becomes a nested
   static class (e.g. `TriggerEvent.Health`).
 - **`EventCoordinator`** — a `BaseRegistry<EventMessage>` singleton
-  (`Create ▸ Registries ▸ Event Coordinator`) that auto-discovers every `EventMessage`
-  asset and dispatches. It is an SO singleton, so **the EventCoordinator asset must be
-  in a `Resources/` folder** to resolve at runtime in a build (see the singleton rule
-  in SKILL.md). Exactly one is expected per project.
+  (`Create ▸ Registries ▸ Event Coordinator`) that dispatches. It resolves events out of
+  its own **serialized `definitions` list**, which is repopulated from the project's
+  assets in the editor — not scanned at runtime. An event missing from that list is
+  `null` at runtime; see [step 3](#step-3-is-real-and-it-is-the-one-people-miss).
+  It is an SO singleton, so **the EventCoordinator asset must be in a `Resources/`
+  folder** to resolve at runtime in a build (see the singleton rule in SKILL.md).
+  Exactly one is expected per project.
 - **`EventMessageData`** — a pooled payload container passed to listeners. Pooled and
   auto-released after dispatch; never cache it or its payloads past the callback.
 
@@ -270,7 +274,7 @@ Sequential fan-out from a single source (e.g. a network message handler that fir
 `Matched`, then `HPUpdated`, then `TurnStarted` in order) is the same pattern: just
 `.Send()` them in the order you need within one method.
 
-## Danger zone: dispatch is synchronous and same-frame
+## Danger zone: dispatch is synchronous, same-frame, and never replayed
 
 Event dispatch is **fully synchronous**. `.Send()` invokes every listener inline and
 returns only after the last one finishes — there is no queue and no next-frame
@@ -296,27 +300,132 @@ Guidance:
 - On genuinely hot events, tick **Mute Debug Log** and **Skip Payload Validation** to
   trim per-dispatch overhead.
 
+### No replay: a late subscriber never learns the event happened
+
+Same-frame dispatch is not only a performance property — it is a **correctness** one.
+`.Send()` reaches whoever is subscribed *at that instant* and is then gone. ProxyCore has
+**no sticky, replayed, or last-value events**: nothing is buffered, and there is no
+"give me the last value" API. A listener that subscribes one frame later, or one
+`Start()` later, never learns the event happened.
+
+This bites hardest at boot, because **Unity does not order `Start()` between
+components**. An event sent from one component's `Start()` races every listener that
+subscribes in its own `Start()` — and the race is silent:
+
+```csharp
+// Boot component
+void Start() => TriggerEvent.World.HideIntroScreen.Send();   // ✗ races every listener
+
+// Seeder component — may run Start() *after* the send above
+void Start() => _sub = ListenEvent.World.HideIntroScreen.Do(SeedEverything);
+```
+
+**Nothing logs an error, because nothing fails.** The send succeeds with zero listeners,
+the seeder subscribes to an event that will never fire again, and the game simply starts
+with nothing seeded. Debugging starts from a symptom (empty pools, missing state) with no
+stack trace pointing at the cause.
+
+Two remedies:
+
+```csharp
+// 1. Give every listener a frame to subscribe before the boot send.
+IEnumerator Start()
+{
+    yield return null;                                  // all other Start()s have run
+    TriggerEvent.World.HideIntroScreen.Send();
+}
+
+// 2. Subscribe-then-reconcile — subscribe for future sends, and read current state now,
+//    so it does not matter whether you were late.
+void OnEnable()
+{
+    _sub = ListenEvent.World.HideIntroScreen.Do(OnHidden);
+    if (IntroScreen.AlreadyHidden) OnHidden(null);      // catch up on a send you missed
+}
+```
+
+Prefer (1) for one-shot boot sequencing and (2) for anything that can be enabled at an
+arbitrary time (pooled objects, lazily-loaded UI, additively-loaded scenes). Neither is a
+replacement for the other: (1) fixes ordering, (2) removes the dependency on ordering.
+
 ## Events, categories, and generating accessors
 
 `TriggerEvent.*` / `ListenEvent.*` are **generated C#**, not hand-written. To make a
 new event usable in code:
 
 1. **Create the categories** you want it under — `Create ▸ Definitions ▸ Category
-   Definition` (e.g. `Health`, `UI`). A category with no valid codegen name won't
-   produce an accessor path.
+   Definition` (e.g. `Health`, `UI`). **Optional.** A category with no valid codegen
+   name is skipped, and an event left with none falls back to `Uncategorized` — see
+   below. Categories are for readability, not for making the event work.
 2. **Create the `EventMessage`** — `Create ▸ Definitions ▸ Event Message`. Set its
    `shortName` (this becomes the accessor identifier — the asset auto-syncs `shortName`
-   to the first word of the asset name) and add one or more `categories`.
-3. **Regenerate** — accessors regenerate automatically when `EventMessage` assets
-   change; to force it, **ProxyCore ▸ Regenerate Event Accessors**. Generated files
-   land in a `Generated/` folder next to the `EventMessage` assets.
+   to the first word of the asset name) and add zero or more `categories`.
+3. **Register it with the `EventCoordinator`** — see below. Automatic on asset import;
+   force it with **ProxyCore ▸ Refresh All Registries**.
+4. **Regenerate** — accessors regenerate automatically when `EventMessage` assets
+   change; to force it, **ProxyCore ▸ Regenerate Event Accessors**.
 
 An event in multiple categories is reachable under **each**:
 `Heal` in `[Health, Player]` → both `TriggerEvent.Health.Heal` and
 `TriggerEvent.Player.Heal` (same underlying event).
 
-If an accessor won't resolve, the cause is almost always: the `EventMessage` asset is
-missing, it has **no category**, or accessors were not regenerated.
+### Step 3 is real, and it is the one people miss
+
+`EventCoordinator` is a `BaseRegistry<EventMessage>`, and a registry resolves ids out of
+its **serialized `definitions` list** — that list, not the project's asset folder, is what
+`GetDefinition(id)` searches. An `EventMessage` asset that is not in the list resolves to
+`null` **even when the accessor's baked ID matches the asset's ID exactly**. So verifying
+the IDs match (below) is *necessary but not sufficient*.
+
+Every registry with `autoRefresh` ticked (the default) repopulates itself when a
+definition asset is created, imported, moved, or deleted, and `Regenerate Event
+Accessors` refreshes before it generates — so ordinary asset creation needs nothing
+extra. Reach for **ProxyCore ▸ Refresh All Registries** when the asset arrived some other
+way:
+
+- hand-written or generated `.asset` YAML,
+- a version-control merge or branch switch that added event assets,
+- `autoRefresh` unticked on that registry,
+- a project still on an older ProxyCore.
+
+Confirm by opening the `EventCoordinator` asset and looking for the event in
+`definitions`, or:
+
+```bash
+# the event asset's GUID must appear in the coordinator's definitions list
+grep "^guid:" "Assets/**/MyEvent Event Message.asset.meta"   # -> guid: bc60fdad…
+grep "bc60fdad" "Assets/**/Resources/EventCoordinator.asset" # no hit = not registered
+```
+
+### An event with no category is not an error — it lands in `Uncategorized`
+
+Leaving `categories` empty is legal and generates working accessors under an
+`Uncategorized` bucket:
+
+```csharp
+TriggerEvent.Uncategorized.Lock.Send();
+_sub = ListenEvent.Uncategorized.Unlock.Do(OnUnlock);
+```
+
+`Uncategorized` is a nested static **class**, not a namespace — the namespace is always
+`ProxyCore.Generated`. The same fallback applies when every entry in `categories` is null
+or has an empty codegen name. Don't go hunting for a bug when you see it; it means only
+that nobody assigned a category. Assign one if you want the accessor to read better —
+that is a naming choice, not a fix.
+
+### If an accessor won't resolve
+
+In rough order of likelihood:
+
+1. accessors were **not regenerated** since the asset changed;
+2. the asset is **not in `EventCoordinator.definitions`** (previous section) — compiles
+   fine, `null` at runtime;
+3. the asset's **ID did not persist** (next section) — also compiles fine, also `null`;
+4. the `EventMessage` asset is missing, or its `shortName` is not what you typed;
+5. you are looking under the wrong category name — the accessor exists, the *file* you
+   grepped for does not (see [Where the generated files land](#where-the-generated-files-land)).
+
+Note what is **not** on this list: having no category (that is `Uncategorized`, above).
 
 ### Verify the event ID persisted (or it resolves to null at runtime)
 
@@ -348,6 +457,38 @@ grep "k__BackingField" "Assets/**/MyEvent Event Message.asset"
 If you must author the YAML by hand, set a non-zero unique `<ID>k__BackingField`
 yourself, then regenerate so the accessor picks up that same value.
 
+## Where the generated files land
+
+The filenames do **not** map one-to-one onto categories, and assuming they do sends you
+looking for accessors that exist. Three rules:
+
+1. **One `Generated/` folder per source folder.** Every folder that holds `EventMessage`
+   assets gets its own `Generated/` subfolder — there is no single central output
+   directory.
+2. **The filename uses only the *primary* (first) category** of the events in it:
+   `<PrimaryCategory>.TriggerEvent.Generated.cs` and `.ListenEvent.Generated.cs`.
+3. **Each file declares a `partial class` block for *every* category its events carry.**
+   Multi-category events are emitted into every one of their category blocks, inside
+   whichever file their primary category named.
+
+The consequence: **a category can have perfectly good accessors and no file bearing its
+name.** A `Quest` category whose events all list `World` or `UI` first is emitted from
+`World.*.Generated.cs` and `UI.*.Generated.cs`; there is no `Quest.TriggerEvent.Generated.cs`
+and nothing is wrong. Everything lands in `namespace ProxyCore.Generated` regardless, and
+the classes are `partial`, so blocks for one category can be spread across several files.
+
+In-repo example — `Samples/Basic/Events/Generated/Health.TriggerEvent.Generated.cs` is
+named for `Health` and contains both a `Health` and a `Player` block, because its events
+list `[Health, Player]`.
+
+**So search for the accessor, never for the filename:**
+
+```bash
+grep -rn "class Quest\b" Assets --include=*.Generated.cs      # ✅ finds the block
+grep -rn "MyEventName" Assets --include=*.Generated.cs        # ✅ finds the accessor
+ls Assets/**/Generated/Quest.TriggerEvent.Generated.cs        # ✗ proves nothing
+```
+
 ## Validation and debugging
 
 - **Expected Payloads** on an `EventMessage` are validated at trigger time; a mismatch
@@ -370,7 +511,18 @@ yourself, then regenerate so the accessor picks up that same value.
 - Forgetting to dispose a subscription in `OnDisable` — leaks listeners across scenes.
 - Triggering a high-fan-out or chained event every frame — the whole cascade runs in
   one frame and spikes frame time.
-- Expecting an accessor before regenerating, or for an event with no category.
+- Expecting an accessor before regenerating. (An event with **no** category is fine —
+  it is `TriggerEvent.Uncategorized.X`.)
+- Assuming a new `EventMessage` is registered with the `EventCoordinator` just because
+  the IDs match. `GetDefinition` reads the registry's serialized `definitions` list; an
+  asset that never got into it is `null` at runtime. Run **ProxyCore ▸ Refresh All
+  Registries** for assets that did not arrive through a normal import.
+- Concluding a category's accessors were never generated because no file is named after
+  it. Filenames use only the *primary* category — grep the accessor, not the filename.
+- Sending an event from `Start()` and expecting listeners that subscribe in their own
+  `Start()` to receive it. Dispatch is never replayed and Unity does not order `Start()`
+  between components, so the send silently reaches nobody — wait a frame, or have the
+  listener reconcile against current state.
 - Placing the `EventCoordinator` asset outside a `Resources/` folder — `Instance` is
   null in a build and nothing dispatches.
 - Caching an `EventMessageData` or a payload past the callback — the data is pooled and

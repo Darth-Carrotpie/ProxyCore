@@ -95,7 +95,9 @@ namespace ProxyCore.Editor.Graph {
                     autoX++;
                     if (autoX > 4) { autoX = 0; autoY++; }
 
-                    layoutData?.SetNodePosition(guid, pos);
+                    // Marked auto-placed so "Import New Definitions" can pull it to the
+                    // user instead of leaving it stranded off the right edge.
+                    layoutData?.SetNodePosition(guid, pos, autoPlaced: true);
                 }
 
                 graphView.AddDefinitionNode(def, guid, pos);
@@ -147,7 +149,7 @@ namespace ProxyCore.Editor.Graph {
                                 condPos = targetPos + new Vector2(
                                     refreshInsertCondOffsetX,
                                     refreshInsertCondGapY * conditionNodeGuids.Count);
-                                layoutData?.SetNodePosition(condGuid, condPos);
+                                layoutData?.SetNodePosition(condGuid, condPos, autoPlaced: true);
                             }
 
                             condNode = graphView.AddConditionNode(condition, condGuid, condPos);
@@ -193,90 +195,350 @@ namespace ProxyCore.Editor.Graph {
             }
         }
 
-        // ── Auto-layout (simple layered / Sugiyama-inspired) ─────────────
+        // ── Auto-layout ─────────────────────────────────────
+
+        private const float LayerGapX = 90f;      // gap between two columns
+        private const float NodeGapY = 40f;       // gap between two nodes in a column
+        private const float ClusterGapY = 140f;   // gap between unrelated clusters
+        private const float FallbackNodeWidth = 220f;
+        private const float FallbackNodeHeight = 130f;
+        private const int OrderingSweeps = 6;     // alternating barycentre passes
 
         /// <summary>
-        /// Runs a basic topological-sort layout on all currently visible
-        /// definition nodes. Useful for initial graph arrangement.
+        /// Arranges the selected nodes — or every visible node when nothing is
+        /// selected — into layered columns, one independent cluster under the next.
+        ///
+        /// Layering is longest-path so an edge always points forward; nodes inside a
+        /// column are ordered by the average row of what feeds them, which keeps edges
+        /// from crossing. Columns are sized from the real node rects, so nodes never
+        /// land on top of each other the way a fixed row pitch does.
+        ///
+        /// Positions go through <see cref="Undo"/> and the asset is left un-dirtied:
+        /// the arrangement lives in memory until the user saves, and CTRL+Z puts the
+        /// old positions back.
         /// </summary>
         public static void AutoLayout(UnlockGraphView graphView,
             UnlockGraphLayoutData layoutData) {
-            // Collect all visible definition nodes
-            var nodes = new List<DefinitionNode>();
-            graphView.nodes.ForEach(n => {
-                if (n is DefinitionNode dn && n.visible)
-                    nodes.Add(dn);
-            });
+            var targets = CollectLayoutTargets(graphView);
+            if (targets.Count == 0) return;
 
-            if (nodes.Count == 0) return;
+            // Anchor on what is being arranged, so laying out a selection inside a big
+            // graph keeps it where the user is looking instead of flinging it to origin.
+            Vector2 origin = TopLeftOf(targets);
 
-            // Build adjacency: who depends on whom
-            var inDegree = new Dictionary<string, int>();
-            var adj = new Dictionary<string, List<string>>();
-            foreach (var n in nodes) {
-                inDegree[n.AssetGuid] = 0;
-                adj[n.AssetGuid] = new List<string>();
+            var targetSet = new HashSet<Node>(targets);
+            var outgoing = new Dictionary<Node, List<Node>>();
+            var incoming = new Dictionary<Node, List<Node>>();
+            foreach (var n in targets) {
+                outgoing[n] = new List<Node>();
+                incoming[n] = new List<Node>();
             }
 
             graphView.edges.ForEach(e => {
-                if (e.output?.node is DefinitionNode src &&
-                    e.input?.node is DefinitionNode tgt) {
-                    adj[src.AssetGuid].Add(tgt.AssetGuid);
-                    if (inDegree.ContainsKey(tgt.AssetGuid))
-                        inDegree[tgt.AssetGuid]++;
-                }
+                var src = e.output?.node;
+                var dst = e.input?.node;
+                if (src == null || dst == null || src == dst) return;
+                if (!targetSet.Contains(src) || !targetSet.Contains(dst)) return;
+                if (outgoing[src].Contains(dst)) return;
+                outgoing[src].Add(dst);
+                incoming[dst].Add(src);
             });
 
-            // Kahn's algorithm for topological sort → layers
-            var queue = new Queue<string>();
-            foreach (var kvp in inDegree)
-                if (kvp.Value == 0) queue.Enqueue(kvp.Key);
+            if (layoutData != null)
+                Undo.RegisterCompleteObjectUndo(layoutData, "Auto-layout nodes");
 
-            var layers = new List<List<string>>();
-            var visited = new HashSet<string>();
+            float clusterTop = origin.y;
+            foreach (var cluster in FindClusters(targets, outgoing, incoming)) {
+                float height = LayoutCluster(cluster, outgoing, incoming, layoutData,
+                    new Vector2(origin.x, clusterTop));
+                clusterTop += height + ClusterGapY;
+            }
 
-            while (queue.Count > 0) {
-                var currentLayer = new List<string>();
-                int count = queue.Count;
-                for (int i = 0; i < count; i++) {
-                    var guid = queue.Dequeue();
-                    if (!visited.Add(guid)) continue;
-                    currentLayer.Add(guid);
+            // Deliberately no SetDirty: an arrangement the user has not accepted yet
+            // must not ride along with the next save. The window flags itself dirty so
+            // the Save button stays the thing that commits it.
+            graphView.NotifyGraphChanged();
+        }
 
-                    foreach (var next in adj.GetValueOrDefault(guid, new List<string>())) {
-                        inDegree[next]--;
-                        if (inDegree[next] == 0)
-                            queue.Enqueue(next);
+        /// <summary>Selected definition/condition nodes, or every visible one when nothing is selected.</summary>
+        private static List<Node> CollectLayoutTargets(UnlockGraphView graphView) {
+            var selected = graphView.selection
+                .OfType<Node>()
+                .Where(IsLayoutable)
+                .ToList();
+
+            if (selected.Count > 0) return selected;
+
+            var all = new List<Node>();
+            graphView.nodes.ForEach(n => {
+                if (IsLayoutable(n)) all.Add(n);
+            });
+            return all;
+        }
+
+        private static bool IsLayoutable(Node n) =>
+            n is DefinitionNode or ConditionNode && n.visible;
+
+        /// <summary>
+        /// Splits the targets into weakly-connected clusters, so unrelated dependency
+        /// trees get their own band with a gap instead of interleaving.
+        /// </summary>
+        public static List<List<T>> FindClusters<T>(List<T> targets,
+            Dictionary<T, List<T>> outgoing,
+            Dictionary<T, List<T>> incoming) {
+            var clusters = new List<List<T>>();
+            var seen = new HashSet<T>();
+
+            foreach (var root in targets) {
+                if (!seen.Add(root)) continue;
+
+                var cluster = new List<T> { root };
+                var frontier = new Queue<T>();
+                frontier.Enqueue(root);
+
+                while (frontier.Count > 0) {
+                    var current = frontier.Dequeue();
+                    foreach (var neighbour in outgoing[current].Concat(incoming[current])) {
+                        if (!seen.Add(neighbour)) continue;
+                        cluster.Add(neighbour);
+                        frontier.Enqueue(neighbour);
                     }
                 }
-                if (currentLayer.Count > 0)
-                    layers.Add(currentLayer);
+
+                clusters.Add(cluster);
             }
 
-            // Place any remaining (cycles) in a final layer
-            var remaining = nodes.Where(n => !visited.Contains(n.AssetGuid))
-                .Select(n => n.AssetGuid).ToList();
-            if (remaining.Count > 0)
-                layers.Add(remaining);
+            // Biggest tree first — the one the user most likely came to look at.
+            // OrderByDescending is stable, so equal-sized clusters keep the order they
+            // were discovered in rather than swapping bands between runs.
+            return clusters.OrderByDescending(c => c.Count).ToList();
+        }
 
-            // Position: layers go left-to-right, nodes top-to-bottom
-            const float layerSpacing = 320f;
-            const float nodeSpacing = 120f;
+        /// <summary>Places one cluster with its top-left at <paramref name="origin"/>; returns its height.</summary>
+        private static float LayoutCluster(List<Node> cluster,
+            Dictionary<Node, List<Node>> outgoing,
+            Dictionary<Node, List<Node>> incoming,
+            UnlockGraphLayoutData layoutData,
+            Vector2 origin) {
+            var columns = AssignColumns(cluster, outgoing, incoming);
 
-            for (int layer = 0; layer < layers.Count; layer++) {
-                for (int idx = 0; idx < layers[layer].Count; idx++) {
-                    var guid = layers[layer][idx];
-                    var node = graphView.FindDefinitionNode(guid);
-                    if (node == null) continue;
+            // Seed row order from where the nodes already sit, so the arrangement stays
+            // recognisable, then let connectivity decide the final order.
+            for (int c = 0; c < columns.Count; c++)
+                columns[c] = columns[c].OrderBy(n => n.GetPosition().position.y).ToList();
 
-                    var pos = new Vector2(layer * layerSpacing, idx * nodeSpacing);
+            OrderRows(columns, outgoing, incoming);
+
+            // Column heights first, so shorter columns can be centred against the tallest.
+            var columnHeights = columns
+                .Select(c => c.Sum(n => SizeOf(n).y) + NodeGapY * Mathf.Max(0, c.Count - 1))
+                .ToList();
+            float tallest = columnHeights.Count > 0 ? columnHeights.Max() : 0f;
+
+            float x = origin.x;
+            for (int c = 0; c < columns.Count; c++) {
+                float widest = columns[c].Max(n => SizeOf(n).x);
+                float y = origin.y + (tallest - columnHeights[c]) * 0.5f;
+
+                foreach (var node in columns[c]) {
+                    var size = SizeOf(node);
+                    // Centre each node in its column so ports line up down the column.
+                    var pos = new Vector2(x + (widest - size.x) * 0.5f, y);
                     node.SetPosition(new Rect(pos, Vector2.zero));
-                    layoutData?.SetNodePosition(guid, pos);
+
+                    string key = LayoutKeyOf(node);
+                    if (key != null) layoutData?.SetNodePosition(key, pos);
+
+                    y += size.y + NodeGapY;
+                }
+
+                x += widest + LayerGapX;
+            }
+
+            return tallest;
+        }
+
+        /// <summary>
+        /// Longest-path layering: every node sits one column right of its furthest
+        /// predecessor. Nodes left over by a dependency cycle are appended rather than
+        /// dropped, so a cycle degrades the layout instead of losing nodes.
+        /// </summary>
+        public static List<List<T>> AssignColumns<T>(List<T> cluster,
+            Dictionary<T, List<T>> outgoing,
+            Dictionary<T, List<T>> incoming) {
+            var remainingInDegree = cluster.ToDictionary(n => n, n => incoming[n].Count);
+            var column = cluster.ToDictionary(n => n, _ => 0);
+
+            var ready = new Queue<T>(cluster.Where(n => remainingInDegree[n] == 0));
+            var settled = new HashSet<T>();
+
+            while (ready.Count > 0) {
+                var node = ready.Dequeue();
+                if (!settled.Add(node)) continue;
+
+                foreach (var next in outgoing[node]) {
+                    column[next] = Mathf.Max(column[next], column[node] + 1);
+                    if (--remainingInDegree[next] == 0)
+                        ready.Enqueue(next);
                 }
             }
 
-            if (layoutData != null)
-                EditorUtility.SetDirty(layoutData);
+            foreach (var node in cluster) {
+                if (settled.Contains(node)) continue;
+                // Cycle member: park it right of whatever already-resolved node feeds it.
+                int after = incoming[node]
+                    .Where(settled.Contains)
+                    .Select(p => column[p] + 1)
+                    .DefaultIfEmpty(0)
+                    .Max();
+                column[node] = Mathf.Max(column[node], after);
+            }
+
+            int columnCount = column.Values.Max() + 1;
+            var columns = new List<List<T>>(columnCount);
+            for (int i = 0; i < columnCount; i++) columns.Add(new List<T>());
+            foreach (var node in cluster) columns[column[node]].Add(node);
+
+            return columns.Where(c => c.Count > 0).ToList();
         }
+
+        /// <summary>
+        /// Orders the nodes inside each column so edges run as straight as possible.
+        ///
+        /// Sweeps alternate direction: on a left-to-right sweep a node is pulled towards
+        /// the average row of what feeds it, on a right-to-left sweep towards the average
+        /// row of what it feeds. One direction alone leaves half the graph unconsidered
+        /// — notably the first column, whose nodes have nothing feeding them and would
+        /// otherwise keep whatever arbitrary order they arrived in, scattering the trees
+        /// hanging off them. Each sweep is kept only if it actually reduces crossings, so
+        /// this can improve the seed order but never degrade it.
+        /// </summary>
+        public static void OrderRows<T>(List<List<T>> columns,
+            Dictionary<T, List<T>> outgoing,
+            Dictionary<T, List<T>> incoming) {
+            var best = Clone(columns);
+            int bestCrossings = CountCrossings(best, outgoing);
+
+            for (int sweep = 0; sweep < OrderingSweeps && bestCrossings > 0; sweep++) {
+                bool leftToRight = sweep % 2 == 0;
+                SweepByBarycentre(columns, leftToRight ? incoming : outgoing, leftToRight);
+
+                int crossings = CountCrossings(columns, outgoing);
+                if (crossings >= bestCrossings) continue;
+
+                bestCrossings = crossings;
+                best = Clone(columns);
+            }
+
+            for (int c = 0; c < columns.Count; c++)
+                columns[c] = best[c];
+        }
+
+        /// <summary>
+        /// One pass over the columns, sorting each by the average row of its neighbours in
+        /// the columns already visited this pass. Nodes with no such neighbour keep their
+        /// current row, so isolated nodes stay put instead of sinking to the bottom.
+        /// </summary>
+        private static void SweepByBarycentre<T>(List<List<T>> columns,
+            Dictionary<T, List<T>> neighbours, bool leftToRight) {
+            var rowOf = new Dictionary<T, float>();
+            foreach (var column in columns)
+                for (int i = 0; i < column.Count; i++)
+                    rowOf[column[i]] = i;
+
+            for (int step = 0; step < columns.Count; step++) {
+                int c = leftToRight ? step : columns.Count - 1 - step;
+
+                // OrderBy is stable, so nodes that tie keep the order they came in with.
+                columns[c] = columns[c]
+                    .OrderBy(n => Barycentre(n, neighbours, rowOf))
+                    .ToList();
+
+                for (int i = 0; i < columns[c].Count; i++)
+                    rowOf[columns[c][i]] = i;
+            }
+        }
+
+        private static float Barycentre<T>(T node,
+            Dictionary<T, List<T>> neighbours,
+            Dictionary<T, float> rowOf) {
+            float total = 0f;
+            int count = 0;
+            foreach (var neighbour in neighbours[node]) {
+                if (!rowOf.TryGetValue(neighbour, out float row)) continue;
+                total += row;
+                count++;
+            }
+
+            return count == 0 ? rowOf[node] : total / count;
+        }
+
+        /// <summary>
+        /// Edge pairs that cross: two edges spanning the same two columns cross when their
+        /// endpoints are in opposite row order.
+        /// </summary>
+        // ponytail: counts only edges whose endpoints share a column pair, since the layout
+        // has no dummy nodes for edges spanning three or more columns. Add dummy nodes if
+        // long edges start looking tangled.
+        public static int CountCrossings<T>(List<List<T>> columns,
+            Dictionary<T, List<T>> outgoing) {
+            var columnOf = new Dictionary<T, int>();
+            var rowOf = new Dictionary<T, int>();
+            for (int c = 0; c < columns.Count; c++) {
+                for (int i = 0; i < columns[c].Count; i++) {
+                    columnOf[columns[c][i]] = c;
+                    rowOf[columns[c][i]] = i;
+                }
+            }
+
+            var edges = new List<(T src, T dst)>();
+            foreach (var column in columns)
+                foreach (var node in column)
+                    foreach (var target in outgoing[node])
+                        if (columnOf.ContainsKey(target))
+                            edges.Add((node, target));
+
+            int crossings = 0;
+            for (int a = 0; a < edges.Count; a++) {
+                for (int b = a + 1; b < edges.Count; b++) {
+                    if (columnOf[edges[a].src] != columnOf[edges[b].src]) continue;
+                    if (columnOf[edges[a].dst] != columnOf[edges[b].dst]) continue;
+
+                    int bySource = rowOf[edges[a].src].CompareTo(rowOf[edges[b].src]);
+                    int byTarget = rowOf[edges[a].dst].CompareTo(rowOf[edges[b].dst]);
+                    if (bySource * byTarget < 0) crossings++;
+                }
+            }
+
+            return crossings;
+        }
+
+        private static List<List<T>> Clone<T>(List<List<T>> columns) =>
+            columns.Select(c => new List<T>(c)).ToList();
+
+        /// <summary>Real on-screen node size, falling back to a typical one before layout has resolved.</summary>
+        private static Vector2 SizeOf(Node node) {
+            var rect = node.GetPosition();
+            float w = float.IsNaN(rect.width) || rect.width < 1f ? FallbackNodeWidth : rect.width;
+            float h = float.IsNaN(rect.height) || rect.height < 1f ? FallbackNodeHeight : rect.height;
+            return new Vector2(w, h);
+        }
+
+        private static Vector2 TopLeftOf(List<Node> nodes) {
+            float minX = float.MaxValue, minY = float.MaxValue;
+            foreach (var n in nodes) {
+                var p = n.GetPosition().position;
+                if (float.IsNaN(p.x) || float.IsNaN(p.y)) continue;
+                minX = Mathf.Min(minX, p.x);
+                minY = Mathf.Min(minY, p.y);
+            }
+            return minX == float.MaxValue ? Vector2.zero : new Vector2(minX, minY);
+        }
+
+        internal static string LayoutKeyOf(Node node) => node switch {
+            DefinitionNode dn => dn.AssetGuid,
+            ConditionNode cn => cn.NodeId,
+            _ => null,
+        };
     }
 }

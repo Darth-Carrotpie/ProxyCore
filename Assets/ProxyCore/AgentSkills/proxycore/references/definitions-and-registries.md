@@ -88,9 +88,15 @@ public class PowerUpRegistry : BaseRegistry<PowerUpDefinition> { }
 
 `BaseRegistry<T>` is a `SingletonSO`, so the **registry asset must live in a
 `Resources/` folder** to resolve at runtime in a build. Create exactly one asset per
-registry type. In the editor, with `autoRefresh` on (default), the `definitions`
-list repopulates as assets are created/deleted/moved; you can also force it from the
-registry inspector or **ProxyCore ▸ Refresh All Registries**.
+registry type.
+
+**The `definitions` list is the lookup.** `GetDefinition(id)` searches that serialized
+list, not the project's assets — nothing is scanned at runtime. A definition asset that
+is not in the list returns `null` even when its ID is correct. In the editor, with
+`autoRefresh` on (default), the list repopulates as definition assets are
+created/imported/moved/deleted; you can also force it from the registry inspector or
+**ProxyCore ▸ Refresh All Registries**. See
+[Refreshing the definition list](#refreshing-the-definition-list).
 
 Base API worth knowing:
 
@@ -163,12 +169,24 @@ not a key→definition lookup. See `references/unlockables.md`.
 
 ## Refreshing the definition list
 
-- **Auto** — with `autoRefresh` on, editor asset changes repopulate the list.
+- **Auto** — editor-only, and opt-out per registry via the `autoRefresh` field
+  (ticked by default, in the registry asset's inspector under *Editor Settings*).
+  Creating, importing, moving, or deleting a `BaseDefinition` asset repopulates every
+  registry that has it ticked. It is debounced, so a batch import refreshes once, and it
+  writes nothing when the resulting list is unchanged — an unaffected registry costs no
+  asset modification.
 - **Manual** — the registry inspector's Refresh button, or **ProxyCore ▸ Refresh All
-  Registries**.
+  Registries**. The menu item **ignores `autoRefresh`** and refreshes every registry:
+  explicit means explicit. Use it after anything that bypasses a normal asset import —
+  hand-written `.asset` YAML, a version-control merge or branch switch, or a registry
+  you deliberately opted out of auto-refresh.
 - `RefreshDefinitions()` finds assets via `t:{AssetTypeName}` (defaults to the
   definition type name). Override the protected `AssetTypeName` only if you search by
   a different asset type name.
+
+Untick `autoRefresh` when a registry's `definitions` list is **hand-curated** — a
+deliberate subset, or a specific order that a project-wide asset scan would flatten.
+Everything else should leave it on.
 
 ## Common mistakes
 
@@ -179,3 +197,8 @@ not a key→definition lookup. See `references/unlockables.md`.
   wire/domain values off a separate `string Key` field.
 - Expecting `GetDefinition(int)` to work before the registry's `definitions` list is
   populated (create the registry asset and refresh).
+- Treating a matching ID as proof a definition is reachable. `GetDefinition` reads the
+  serialized `definitions` list; a correct ID on an unregistered asset still returns
+  `null`. Check the list, then **ProxyCore ▸ Refresh All Registries**.
+- Hand-curating a registry's `definitions` list while leaving `autoRefresh` ticked —
+  the next asset import replaces your list with a full project scan. Untick it.
