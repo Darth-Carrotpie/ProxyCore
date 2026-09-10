@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 61e823ad2f199d44888859f223dd20e3, type: 3}
+  m_Name: EventCoordinator
+  m_EditorClassIdentifier: ProxyCore::ProxyCore.EventCoordinator
+  _persistent: 0
+  definitions:
+  - {fileID: 11400000, guid: d6811070b7c2dbf4eb5dcbe029ecdc8b, type: 2}
+  - {fileID: 11400000, guid: bc60fdad25aa02c489cf0626b5ef502e, type: 2}
+  - {fileID: 11400000, guid: 9a33d30b1d7352d4c94c504925265fb8, type: 2}
+  - {fileID: 11400000, guid: 0e5b5bf46600d2f4fb34c47a25944d6f, type: 2}
+  autoRefresh: 1
+  enableDebugging: 0
+  showAttachedEvents: 0

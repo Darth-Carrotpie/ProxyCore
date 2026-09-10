@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e9e1961ac7fda7d47951df80a6c37f71, type: 3}
+  m_Name: Heal
+  m_EditorClassIdentifier: ProxyCore::ProxyCore.EventDefinition
+  <ID>k__BackingField: 616013126
+  shortName: Heal
+  displayName: Heal Unit
+  accentColor: {r: 0.34434593, g: 0.7484276, b: 0.20946555, a: 0.6}
+  categories:
+  - {fileID: 11400000, guid: 93b4b27055c9d0741aa36c7121f127bb, type: 2}
+  - {fileID: 11400000, guid: b0b6c3b51facd4946a96497ff7ed1c50, type: 2}
+  expectedPayloads:
+  - rid: 1859935503656681667
+  skipPayloadValidation: 1
+  muteDebugLog: 0
+  eventTypeFile: {fileID: 0}
+  eventTypeName: 
+  references:
+    version: 2
+    RefIds:
+    - rid: 1859935503656681667
+      type: {class: FloatPayload, ns: ProxyCore, asm: ProxyCore}
+      data:
+        _isSet: 0
+        _value: 0
