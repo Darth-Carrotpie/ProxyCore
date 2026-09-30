@@ -216,7 +216,7 @@ namespace ProxyCore.Editor
             // Focus the short name field of a newly created event for 2–3 frames to ensure the control is rendered
             if (pendingFocusEvent != null)
             {
-                string controlName = $"shortName_{pendingFocusEvent.GetInstanceID()}";
+                string controlName = $"shortName_{AssetDatabase.GetAssetPath(pendingFocusEvent)}";
                 EditorGUI.FocusTextInControl(controlName);
                 pendingFocusFrames++;
                 if (pendingFocusFrames > 2)
@@ -489,7 +489,7 @@ namespace ProxyCore.Editor
             // Short Name (primary identifier) — uses DelayedTextField so changes commit on Enter/blur
             // Assign a named control for newly created events so we can focus it programmatically
             if (newlyCreatedEvents.Contains(evt))
-                GUI.SetNextControlName($"shortName_{evt.GetInstanceID()}");
+                GUI.SetNextControlName($"shortName_{AssetDatabase.GetAssetPath(evt)}");
             EditorGUI.BeginChangeCheck();
             string newShortName = EditorGUILayout.DelayedTextField(evt.shortName ?? "", GUILayout.Width(COLUMN_SHORT_NAME));
             if (EditorGUI.EndChangeCheck())

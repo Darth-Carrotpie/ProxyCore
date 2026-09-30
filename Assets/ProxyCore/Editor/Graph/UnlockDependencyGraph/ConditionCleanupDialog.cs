@@ -76,16 +76,16 @@ namespace ProxyCore.Editor.Graph {
             _selectAllIneffective = false;
 
             // 1. Collect all UnlockCondition assets
-            var allConditions = new Dictionary<int, (UnlockCondition cond, string path)>();
+            var allConditions = new Dictionary<UnlockCondition, string>();
             foreach (string guid in AssetDatabase.FindAssets("t:UnlockCondition")) {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 var cond = AssetDatabase.LoadAssetAtPath<UnlockCondition>(path);
                 if (cond == null) continue;
-                allConditions[cond.GetInstanceID()] = (cond, path);
+                allConditions[cond] = path;
             }
 
             // 2. Collect every condition referenced by any definition's _prerequisites
-            var usedIds = new HashSet<int>();
+            var usedConditions = new HashSet<UnlockCondition>();
             foreach (string guid in AssetDatabase.FindAssets("t:ScriptableObject")) {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 var so = AssetDatabase.LoadAssetAtPath<ScriptableObject>(path);
@@ -97,7 +97,7 @@ namespace ProxyCore.Editor.Graph {
 
                 foreach (var cond in prereqs) {
                     if (cond != null)
-                        usedIds.Add(cond.GetInstanceID());
+                        usedConditions.Add(cond);
                 }
             }
 
@@ -105,12 +105,12 @@ namespace ProxyCore.Editor.Graph {
             var usedEntries = new List<ConditionEntry>();
             foreach (var kvp in allConditions) {
                 var entry = new ConditionEntry {
-                    Condition = kvp.Value.cond,
-                    AssetPath = kvp.Value.path,
-                    TypeName = kvp.Value.cond.GetType().Name,
+                    Condition = kvp.Key,
+                    AssetPath = kvp.Value,
+                    TypeName = kvp.Key.GetType().Name,
                 };
 
-                if (usedIds.Contains(kvp.Key))
+                if (usedConditions.Contains(kvp.Key))
                     usedEntries.Add(entry);
                 else
                     _unusedConditions.Add(entry);

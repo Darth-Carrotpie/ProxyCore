@@ -35,8 +35,7 @@ namespace ProxyCore.Editor.Graph {
             // Deduplicate (a definition could be in multiple registries in theory)
             var uniqueDefs = allDefs
                 .Where(d => d != null && d is IUnlockable)
-                .GroupBy(d => d.GetInstanceID())
-                .Select(g => g.First())
+                .Distinct()
                 .ToList();
 
             // ── Step 2: Create definition nodes ──────────────────────────

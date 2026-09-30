@@ -1060,27 +1060,27 @@ namespace ProxyCore.Editor.Graph {
         /// </summary>
         public List<UnityEngine.Object> GetSelectedObjects() {
             var objects = new List<UnityEngine.Object>();
-            var seen = new HashSet<int>(); // instance IDs to deduplicate
+            var seen = new HashSet<UnityEngine.Object>();
 
             foreach (var sel in selection) {
                 switch (sel) {
                     case DefinitionNode dn:
-                        if (dn.Definition != null && seen.Add(dn.Definition.GetInstanceID()))
+                        if (dn.Definition != null && seen.Add(dn.Definition))
                             objects.Add(dn.Definition);
                         break;
 
                     case ConditionNode cn:
-                        if (cn.Condition != null && seen.Add(cn.Condition.GetInstanceID()))
+                        if (cn.Condition != null && seen.Add(cn.Condition))
                             objects.Add(cn.Condition);
                         break;
 
                     case SubGraphNode sgn:
-                        if (_layoutData != null && seen.Add(_layoutData.GetInstanceID()))
+                        if (_layoutData != null && seen.Add(_layoutData))
                             objects.Add(_layoutData);
                         break;
 
                     case UnlockGraphGroup grp:
-                        if (_layoutData != null && seen.Add(_layoutData.GetInstanceID()))
+                        if (_layoutData != null && seen.Add(_layoutData))
                             objects.Add(_layoutData);
                         break;
 
@@ -1092,18 +1092,18 @@ namespace ProxyCore.Editor.Graph {
             return objects;
         }
 
-        private void ResolveEdgeObject(Edge edge, List<UnityEngine.Object> objects, HashSet<int> seen) {
+        private void ResolveEdgeObject(Edge edge, List<UnityEngine.Object> objects, HashSet<UnityEngine.Object> seen) {
             // Edge between two DefinitionNodes → find the direct-edge condition SO
             if (edge.output?.node is DefinitionNode srcDef &&
                 edge.input?.node is DefinitionNode tgtDef) {
                 var cond = FindConditionSO(srcDef.Definition, tgtDef.Definition);
-                if (cond != null && seen.Add(cond.GetInstanceID()))
+                if (cond != null && seen.Add(cond))
                     objects.Add(cond);
                 return;
             }
             // Edge from ConditionNode → the condition SO itself
             if (edge.output?.node is ConditionNode cn) {
-                if (cn.Condition != null && seen.Add(cn.Condition.GetInstanceID()))
+                if (cn.Condition != null && seen.Add(cn.Condition))
                     objects.Add(cn.Condition);
             }
         }

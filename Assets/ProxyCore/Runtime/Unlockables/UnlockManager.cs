@@ -869,26 +869,26 @@ namespace ProxyCore {
         private int CountConfiguredCatalogs() {
             if (_registries == null || _registries.Count == 0) return 0;
 
-            var uniqueInstanceIds = new HashSet<int>();
+            var uniqueRegistries = new HashSet<ScriptableObject>();
             foreach (var entry in _registries) {
                 if (entry?.Registry is not IUnlockableCatalog) continue;
-                uniqueInstanceIds.Add(entry.Registry.GetInstanceID());
+                uniqueRegistries.Add(entry.Registry);
             }
 
-            return uniqueInstanceIds.Count;
+            return uniqueRegistries.Count;
         }
 
         private static int DiscoverCatalogCountInProject() {
-            var uniqueInstanceIds = new HashSet<int>();
+            var uniqueRegistries = new HashSet<ScriptableObject>();
             string[] guids = AssetDatabase.FindAssets("t:ScriptableObject");
             foreach (string guid in guids) {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 var asset = AssetDatabase.LoadAssetAtPath<ScriptableObject>(path);
                 if (asset is IUnlockableCatalog)
-                    uniqueInstanceIds.Add(asset.GetInstanceID());
+                    uniqueRegistries.Add(asset);
             }
 
-            return uniqueInstanceIds.Count;
+            return uniqueRegistries.Count;
         }
 #endif
 

@@ -1,11 +1,19 @@
 #if UNITY_EDITOR
-#pragma warning disable CS0618 // IMGUI TreeView/TreeViewItem/TreeViewState APIs are obsolete but required for this window
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.IMGUI.Controls;
 using UnityEngine;
+#if UNITY_6000_2_OR_NEWER
+using ProxyTreeView = UnityEditor.IMGUI.Controls.TreeView<int>;
+using ProxyTreeViewItem = UnityEditor.IMGUI.Controls.TreeViewItem<int>;
+using ProxyTreeViewState = UnityEditor.IMGUI.Controls.TreeViewState<int>;
+#else
+using ProxyTreeView = UnityEditor.IMGUI.Controls.TreeView;
+using ProxyTreeViewItem = UnityEditor.IMGUI.Controls.TreeViewItem;
+using ProxyTreeViewState = UnityEditor.IMGUI.Controls.TreeViewState;
+#endif
 
 namespace ProxyCore.Editor
 {
@@ -50,7 +58,7 @@ namespace ProxyCore.Editor
 
         // Tree view
         private EventTreeView treeView;
-        private TreeViewState treeViewState;
+        private ProxyTreeViewState treeViewState;
 
         // Scroll positions
         private Vector2 detailScrollPos;
@@ -115,7 +123,7 @@ namespace ProxyCore.Editor
             LoadAllData();
 
             if (treeViewState == null)
-                treeViewState = new TreeViewState();
+                treeViewState = new ProxyTreeViewState();
 
             RebuildTreeView();
 
@@ -988,7 +996,7 @@ namespace ProxyCore.Editor
     /// <summary>
     /// IMGUI TreeView that displays events grouped by category with live stats badges.
     /// </summary>
-    internal class EventTreeView : TreeView
+    internal class EventTreeView : ProxyTreeView
     {
         private List<EventMessage> allEvents;
         private List<CategoryDefinition> allCategories;
@@ -999,7 +1007,7 @@ namespace ProxyCore.Editor
 
         public event Action<EventMessage> OnEventSelected;
 
-        public EventTreeView(TreeViewState state, List<EventMessage> events,
+        public EventTreeView(ProxyTreeViewState state, List<EventMessage> events,
             List<CategoryDefinition> categories, string filter)
             : base(state)
         {
@@ -1010,9 +1018,9 @@ namespace ProxyCore.Editor
             showBorder = true;
         }
 
-        protected override TreeViewItem BuildRoot()
+        protected override ProxyTreeViewItem BuildRoot()
         {
-            var root = new TreeViewItem(0, -1, "Root");
+            var root = new ProxyTreeViewItem(0, -1, "Root");
             idToEvent.Clear();
 
             int nextId = 1;
@@ -1038,7 +1046,7 @@ namespace ProxyCore.Editor
                 if (catEvents.Count == 0 && !string.IsNullOrEmpty(filter))
                     continue; // Hide empty categories when filtering
 
-                var catItem = new TreeViewItem(nextId++, 0, $"{catName} ({catEvents.Count})");
+                var catItem = new ProxyTreeViewItem(nextId++, 0, $"{catName} ({catEvents.Count})");
                 root.AddChild(catItem);
 
                 foreach (var evt in catEvents)
@@ -1052,7 +1060,7 @@ namespace ProxyCore.Editor
 
             if (uncategorizedEvents.Count > 0)
             {
-                var uncatItem = new TreeViewItem(nextId++, 0, $"(Uncategorized) ({uncategorizedEvents.Count})");
+                var uncatItem = new ProxyTreeViewItem(nextId++, 0, $"(Uncategorized) ({uncategorizedEvents.Count})");
                 root.AddChild(uncatItem);
 
                 foreach (var evt in uncategorizedEvents)
@@ -1067,7 +1075,7 @@ namespace ProxyCore.Editor
             // Ensure root has children (TreeView requirement)
             if (!root.hasChildren)
             {
-                root.AddChild(new TreeViewItem(nextId++, 0, "(no events)"));
+                root.AddChild(new ProxyTreeViewItem(nextId++, 0, "(no events)"));
             }
 
             SetupDepthsFromParentsAndChildren(root);
@@ -1204,7 +1212,7 @@ namespace ProxyCore.Editor
     /// <summary>
     /// Custom TreeViewItem that carries an EventMessage reference.
     /// </summary>
-    internal class EventTreeItem : TreeViewItem
+    internal class EventTreeItem : ProxyTreeViewItem
     {
         public EventMessage EventMessage { get; }
 
@@ -1215,5 +1223,4 @@ namespace ProxyCore.Editor
         }
     }
 }
-#pragma warning restore CS0618
 #endif

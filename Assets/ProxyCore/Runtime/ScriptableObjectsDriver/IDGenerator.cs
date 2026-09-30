@@ -7,7 +7,7 @@ namespace ProxyCore {
         public static int GenerateID() {
             HashSet<int> ids = GetActiveIDList();
             int newId;
-            do newId = MD5HashGenerator.GenerateIntHash(GUID.Generate().ToString());
+            do newId = MD5HashGenerator.GenerateIntHash(UnityEngine.GUID.Generate().ToString());
             while (IsIDOccupied(newId, ids));
             return newId;
         }
